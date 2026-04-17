@@ -96,10 +96,6 @@
     function fmt(s){if(!s||s.trim()==="")return"";const d=new Date(s);if(isNaN(d))return s;return`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;}
     function daysUntil(s){if(!s||s.trim()==="")return 9999;return Math.ceil((new Date(s)-TODAY)/86400000);}
     function getNextEval(p){for(const[e]of(p.evaluationDates||[])){const d=daysUntil(e);if(d>=0&&d!==9999)return{date:e,days:d};}return null;}
-    const TODAY=new Date("2026-04-17");
-    function fmt(s){if(!s||s.trim()==="")return"";const d=new Date(s);if(isNaN(d))return s;return`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;}
-    function daysUntil(s){if(!s||s.trim()==="")return 9999;return Math.ceil((new Date(s)-TODAY)/86400000);}
-    function getNextEval(p){for(const[e]of(p.evaluationDates||[])){const d=daysUntil(e);if(d>=0&&d!==9999)return{date:e,days:d};}return null;}
 
     function RatioBar({ratio,barrier,knockIn}){
       if(ratio===null)return<div style={{fontSize:12,color:"#aaa",padding:"8px 0"}}>기준가 미입력</div>;
@@ -376,6 +372,7 @@
       setLastUpdated(new Date().toLocaleTimeString("ko-KR"));
       setPricesLoading(false);
     }
+      
       function calcStatus(p){
         const next=getNextEval(p);
         const idx=next?p.evaluationDates.findIndex(([e])=>e===next.date):p.evaluationDates.length-1;
