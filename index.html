@@ -312,14 +312,13 @@
       function getInitPrice(pid,asset){const o=initPrices[pid]?.[asset];if(o!==undefined&&o!==0)return o;return db.find(p=>String(p.id)===String(pid))?.initialPrices[asset]??0;}
       function setInitPrice(pid,asset,val){setInitPrices(prev=>({...prev,[pid]:{...(prev[pid]||{}),[asset]:val}}));}
 
-      // [기능 추가] 관리자가 수동으로 야후에서 시세를 수집해 DB에 밀어넣는 핵심 로직
+     // [신규 기능] 막히지 않는 구글 개인 서버를 이용한 초고속 시세 업데이트 로직
       async function updatePricesFromYahoo() {
         setPricesLoading(true);
         const results = {};
         const assetToTicker = {};
         const uniqueTickers = new Set();
         
-        // 시스템에 등록된 모든 상품의 기초자산 추출 (대시보드 노출 여부와 무관하게 모두 수집)
         const totalAssets = [...new Set(db.flatMap(p => p.assets))];
         totalAssets.forEach(asset => {
           const clean = String(asset).trim();
@@ -331,19 +330,17 @@
 
         if (uniqueTickers.size > 0) {
           const symbols = Array.from(uniqueTickers).join(',');
-          const targetUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
-          const proxies = [
-            `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
-            `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
-            `https://thingproxy.freeboard.io/fetch/${targetUrl}`
-          ];
-
+          
+          // ★ [중요] 방금 복사하신 구글 스크립트 웹 앱 URL을 아래 따옴표 안에 붙여넣으세요! ★
+          const GAS_URL = "https://script.google.com/macros/s/AKfycbwNNJ3B2SJyEl40pK4DQT-ee0a9L80pcaLRQ23Ey060T1yWznQlbfmr6qNZCX_Nx2Sd/exec";
+          
           let data = null;
-          for (const proxy of proxies) {
-            try {
-              const res = await fetch(proxy);
-              if (res.ok) { data = await res.json(); if (data?.quoteResponse?.result) break; }
-            } catch(e) {}
+          try {
+            // 막히던 공용 프록시 대신, 구글의 내 전용 API 서버로 묶음 조회 요청
+            const res = await fetch(`${GAS_URL}?symbols=${symbols}`);
+            if (res.ok) data = await res.json();
+          } catch(e) {
+            console.error("구글 서버 요청 실패:", e);
           }
 
           if (data && data.quoteResponse && data.quoteResponse.result) {
@@ -355,7 +352,7 @@
               if (t && tickerPrices[t]) results[clean] = tickerPrices[t];
             });
             
-            // 추출한 가격 데이터를 DB의 asset_prices 테이블로 업서트(삽입 또는 수정)
+            // DB에 저장
             const rows = Object.entries(results).map(([asset, price]) => ({ asset, price, updated_at: new Date().toISOString() }));
             if(rows.length > 0) {
                try {
@@ -364,14 +361,16 @@
                    headers: { ...sbH(session.access_token), "Prefer": "resolution=merge-duplicates" },
                    body: JSON.stringify(rows)
                  });
-                 if(!r.ok) throw new Error("DB 업데이트 권한이 없거나 설정이 잘못되었습니다.");
-                 alert(`✓ ${rows.length}개 기초자산 최신 시세가 DB에 성공적으로 갱신되었습니다!`);
+                 if(!r.ok) throw new Error("DB 업데이트 권한 오류");
+                 alert(`✓ 성공! 구글 서버를 통해 ${rows.length}개의 최신 시세가 1초 만에 갱신되었습니다.`);
                } catch(err) { alert(err.message); }
             }
-          } else alert("야후 파이낸스 서버가 조회를 거부했습니다. 조금 뒤 다시 시도해주세요.");
+          } else {
+            alert("구글 서버에서 데이터를 가져오지 못했습니다. URL이 정확하게 복사되었는지 확인해주세요.");
+          }
         }
         
-        await loadPricesFromDB(session.access_token); // 수집 완료 후 최신 DB 데이터 다시 불러오기
+        await loadPricesFromDB(session.access_token);
         setPricesLoading(false);
       }
 
