@@ -17,7 +17,7 @@
     ::-webkit-scrollbar{width:6px;height:6px;}
     ::-webkit-scrollbar-track{background:#f1f1f1;}
     ::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px;}
-    .data-table th, .data-table td { padding: 10px 12px; border-bottom: 1px solid #eee; text-align: left; }
+    .data-table th, .data-table td { padding: 10px 12px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }
     .data-table th { background: #f9f9f9; font-weight: 500; color: #555; white-space: nowrap; }
     .data-table tr:hover { background: #fafafa; }
     .data-table tr:last-child td { border-bottom: none; }
@@ -125,26 +125,43 @@
     function daysUntil(s){if(!s||s.trim()==="")return 9999;return Math.ceil((new Date(s)-TODAY)/86400000);}
     function getNextEval(p){for(const[e]of(p.evaluationDates||[])){const d=daysUntil(e);if(d>=0&&d!==9999)return{date:e,days:d};}return null;}
 
+    // [수정된 기능] 상하단 이중 레이블이 적용된 RatioBar
     function RatioBar({ratio, init, cur, barrier, knockIn}){
       if(!init || init <= 0) return <div style={{fontSize:12,color:"#A32D2D",padding:"8px 0",fontWeight:500}}>⚠️ 기준가 미입력</div>;
       if(cur === null || cur === undefined) return <div style={{fontSize:12,color:"#aaa",padding:"8px 0"}}>종가 데이터 대기 중</div>;
+      
       const MIN=0, MAX=150, pct=v=>Math.max(0,Math.min(100,(v-MIN)/(MAX-MIN)*100));
       const kiPct=pct(knockIn), barPct=pct(barrier), curPct=pct(ratio);
-      const curColor=ratio<knockIn?"#A32D2D":ratio<barrier?"#BA7517":"#0F6E56";
+      const curColor=ratio<knockIn?"#DC2626":ratio<barrier?"#D97706":"#0F6E56";
+
+      const fNum = (n) => n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+      const kiPrice = fNum(init * knockIn / 100);
+      const barPrice = fNum(init * barrier / 100);
+      const curPrice = fNum(cur);
+
       const labels=[{id:"ki",pct:kiPct},{id:"bar",pct:barPct},{id:"cur",pct:curPct}].sort((a,b)=>a.pct-b.pct);
-      for(let i=1;i<labels.length;i++)if(labels[i].pct-labels[i-1].pct<8)labels[i].pct=labels[i-1].pct+8;
+      for(let i=1;i<labels.length;i++)if(labels[i].pct-labels[i-1].pct<10)labels[i].pct=labels[i-1].pct+10;
       const lm={};labels.forEach(l=>lm[l.id]=l.pct);
+
       return(
-        <div style={{padding:"8px 0 4px"}}>
-          <div style={{position:"relative",height:8,background:"#e8e8e8",borderRadius:4,margin:"0 0 22px"}}>
-            <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${kiPct}%`,background:"rgba(162,45,45,0.12)",borderRadius:"4px 0 0 4px"}}/>
-            <div style={{position:"absolute",left:`${kiPct}%`,top:0,bottom:0,width:`${barPct-kiPct}%`,background:"rgba(186,117,23,0.10)"}}/>
+        <div style={{padding:"25px 0 25px"}}>
+          <div style={{position:"relative",height:8,background:"#e8e8e8",borderRadius:4}}>
+            <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${kiPct}%`,background:"rgba(220,38,38,0.12)",borderRadius:"4px 0 0 4px"}}/>
+            <div style={{position:"absolute",left:`${kiPct}%`,top:0,bottom:0,width:`${barPct-kiPct}%`,background:"rgba(217,119,6,0.10)"}}/>
             <div style={{position:"absolute",left:`${barPct}%`,top:0,bottom:0,right:0,background:"rgba(15,110,86,0.10)",borderRadius:"0 4px 4px 0"}}/>
-            <div style={{position:"absolute",left:`${kiPct}%`,top:-4,bottom:-4,width:2,background:"#A32D2D",transform:"translateX(-50%)",zIndex:2}}/>
-            <div style={{position:"absolute",left:`${barPct}%`,top:-4,bottom:-4,width:2,background:"#BA7517",transform:"translateX(-50%)",zIndex:2}}/>
+            
+            <div style={{position:"absolute",left:`${kiPct}%`,top:-4,bottom:-4,width:2,background:"#DC2626",transform:"translateX(-50%)",zIndex:2}}/>
+            <div style={{position:"absolute",left:`${barPct}%`,top:-4,bottom:-4,width:2,background:"#D97706",transform:"translateX(-50%)",zIndex:2}}/>
             <div style={{position:"absolute",left:`${curPct}%`,top:"50%",transform:"translate(-50%,-50%)",width:13,height:13,background:curColor,borderRadius:"50%",border:"2px solid #fff",zIndex:3,outline:`2px solid ${curColor}`}}/>
-            <div style={{position:"absolute",left:`${lm.ki}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:"#A32D2D",whiteSpace:"nowrap",fontWeight:500}}>{knockIn}%</div>
-            <div style={{position:"absolute",left:`${lm.bar}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:"#BA7517",whiteSpace:"nowrap",fontWeight:500}}>{barrier}%</div>
+            
+            {/* 상단 라벨 (금액) */}
+            <div style={{position:"absolute",left:`${lm.ki}%`,top:-20,transform:"translateX(-50%)",fontSize:10,color:"#DC2626",whiteSpace:"nowrap",fontWeight:500}}>${kiPrice}</div>
+            <div style={{position:"absolute",left:`${lm.bar}%`,top:-20,transform:"translateX(-50%)",fontSize:10,color:"#D97706",whiteSpace:"nowrap",fontWeight:500}}>${barPrice}</div>
+            <div style={{position:"absolute",left:`${lm.cur}%`,top:-20,transform:"translateX(-50%)",fontSize:10,color:curColor,whiteSpace:"nowrap",fontWeight:700}}>${curPrice}</div>
+
+            {/* 하단 라벨 (%) */}
+            <div style={{position:"absolute",left:`${lm.ki}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:"#DC2626",whiteSpace:"nowrap",fontWeight:500}}>{knockIn}%</div>
+            <div style={{position:"absolute",left:`${lm.bar}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:"#D97706",whiteSpace:"nowrap",fontWeight:500}}>{barrier}%</div>
             <div style={{position:"absolute",left:`${lm.cur}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:curColor,whiteSpace:"nowrap",fontWeight:700}}>{ratio.toFixed(1)}%</div>
           </div>
         </div>
@@ -165,10 +182,10 @@
       const [detailProduct,setDetailProduct]=useState(null);
       
       const [mainTab,setMainTab]=useState("list");
-      const [dashView,setDashView]=useState("account"); // 계좌별 or 전체계좌
-      const [displayMode,setDisplayMode]=useState("visual"); // 시각화 or 표
-      const [sortBy,setSortBy]=useState("name"); // name, date, status
-      const [filterStatus,setFilterStatus]=useState("all"); // 상태별 필터
+      const [dashView,setDashView]=useState("account");
+      const [displayMode,setDisplayMode]=useState("visual");
+      const [sortBy,setSortBy]=useState("name");
+      const [filterStatus,setFilterStatus]=useState("all");
       
       const [prices,setPrices]=useState({}); const [pricesLoading,setPricesLoading]=useState(false); const [lastUpdated,setLastUpdated]=useState(null);
       const [initPrices,setInitPrices]=useState({});
@@ -320,13 +337,11 @@
         setXlsxLoading(false);
       }
 
-      // 공통 데이터 로직
       const acc=accounts[activeTab]||accounts[0]||{id:null,name:"",products:{}};
       const myProductIds=Object.keys(acc.products||{}).map(String); const myProducts=db.filter(p=>myProductIds.includes(String(p.id)));
       const allProductIds=[...new Set(accounts.flatMap(a=>Object.keys(a.products||{}).map(String)))];
       const rawDashProducts=dashView==="account"?myProducts:db.filter(p=>allProductIds.includes(String(p.id)));
 
-      // ★ [신규] 계좌 잔액 및 수익률 계산 도우미 함수
       const calcAccMetrics = (accObj) => {
         const pIds = Object.keys(accObj.products||{}).map(String);
         const prods = db.filter(p => pIds.includes(String(p.id)));
@@ -357,7 +372,7 @@
 
         if (uniqueTickers.size > 0) {
           // ★ 여기에 본인의 구글 스크립트 웹 앱 주소를 입력하세요 ★
-          const GAS_URL = "https://script.google.com/macros/s/AKfycbwh9Lh5RP3VCMfQIu_zouK0_QgGtngRbE6VUXzL002xdhdRrc1YEg861uyfGB5ctNH1/exec";
+          const GAS_URL = "https://script.google.com/macros/s/AKfycbz8AZrPUFy55gwPvM8COb4GExsVtCgmdtXpmCn31BengXymAPz2lNvp0TZMcUtNvG0z/exec";
           try {
             const res = await fetch(`${GAS_URL}?symbols=${Array.from(uniqueTickers).join(',')}`);
             if (res.ok) {
@@ -422,7 +437,7 @@
         card:{background:"#fff",border:"0.5px solid #e5e5e5",borderRadius:12,padding:"16px 20px",marginBottom:12},
         btn:{background:"#fff",border:"0.5px solid #ccc",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:14,color:"#111"},
         btnP:{background:"#185FA5",border:"none",borderRadius:8,padding:"8px 18px",cursor:"pointer",fontSize:14,color:"#fff",fontWeight:500},
-        btnD:{background:"#A32D2D",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:14,color:"#fff"},
+        btnD:{background:"#DC2626",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:14,color:"#fff"},
         input:{border:"1px solid #ddd",borderRadius:8,padding:"8px 12px",fontSize:15,width:"100%",background:"#fff",color:"#111"},
         metricCard:{background:"#f5f7fa",borderRadius:8,padding:"12px 16px",flex:1,minWidth:0},
         label:{fontSize:13,color:"#666",marginBottom:4,display:"block"}
@@ -453,7 +468,7 @@
                 <button onClick={handleResetPassword} disabled={authLoading} style={{background:"none", border:"none", color:"#666", fontSize:12, cursor:"pointer", textDecoration:"underline"}}>비밀번호를 잊으셨나요?</button>
               </div>
             )}
-            {authErr&&<p style={{color:authErr.includes("완료")||authErr.includes("발송")?"#0F6E56":"#A32D2D",fontSize:13,marginBottom:10}}>{authErr}</p>}
+            {authErr&&<p style={{color:authErr.includes("완료")||authErr.includes("발송")?"#0F6E56":"#DC2626",fontSize:13,marginBottom:10}}>{authErr}</p>}
             <button style={{...C.btnP,width:"100%",padding:10}} onClick={authTab==="login"?handleLogin:handleSignUp} disabled={authLoading}>{authLoading?"처리 중...":(authTab==="login"?"로그인":"회원가입")}</button>
           </div>
         </div>
@@ -487,7 +502,7 @@
                 </label>
                 {xlsxLoading&&<span style={{fontSize:13,color:"#888"}}>저장 중...</span>}
               </div>
-              {xlsxStatus&&<div style={{marginTop:12,padding:"10px 14px",borderRadius:8,background:xlsxStatus.ok?"#E1F5EE":"#FCEBEB",color:xlsxStatus.ok?"#0F6E56":"#A32D2D",fontSize:13,fontWeight:500}}>{xlsxStatus.msg}</div>}
+              {xlsxStatus&&<div style={{marginTop:12,padding:"10px 14px",borderRadius:8,background:xlsxStatus.ok?"#E1F5EE":"#FCEBEB",color:xlsxStatus.ok?"#0F6E56":"#DC2626",fontSize:13,fontWeight:500}}>{xlsxStatus.msg}</div>}
             </div>
           </div>
         </div>
@@ -514,7 +529,7 @@
             ))}
             <button style={{...C.btn,padding:"4px 10px",fontSize:20,border:"none",color:"#888"}} onClick={addAccount}>+</button>
             <button style={{...C.btn,padding:"4px 8px",fontSize:12}} onClick={dupAccount}>복제</button>
-            {accounts.length>1&&<button style={{...C.btn,padding:"4px 8px",fontSize:12,color:"#A32D2D"}} onClick={delAccount}>삭제</button>}
+            {accounts.length>1&&<button style={{...C.btn,padding:"4px 8px",fontSize:12,color:"#DC2626"}} onClick={delAccount}>삭제</button>}
           </div>
 
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",display:"flex",padding:"0 16px"}}>
@@ -582,7 +597,7 @@
                       {[["+100만",100],["+10만",10],["+1만",1]].map(([label,val])=>(
                         <button key={label} onClick={()=>addAmtFn(p.id,val)} style={{flex:1,padding:"9px 6px",fontSize:13,border:"none",borderRight:"1px solid #888",background:"#fff",color:"#111",cursor:"pointer",whiteSpace:"nowrap"}}>{label}</button>
                       ))}
-                      <button onClick={()=>setAmt(p.id,0)} style={{padding:"9px 10px",fontSize:13,border:"none",background:"#fff",color:"#A32D2D",cursor:"pointer",whiteSpace:"nowrap"}}>초기화</button>
+                      <button onClick={()=>setAmt(p.id,0)} style={{padding:"9px 10px",fontSize:13,border:"none",background:"#fff",color:"#DC2626",cursor:"pointer",whiteSpace:"nowrap"}}>초기화</button>
                     </div>
                   </div>
                 ))}
@@ -635,7 +650,6 @@
                 </div>
               </div>
 
-              {/* ★ [신규] 대시보드 계좌 요약 패널 */}
               <div style={{marginBottom:16}}>
                 {dashView === "account" ? (
                   <div style={{display:"flex",gap:10}}>
@@ -676,6 +690,7 @@
 
               {filteredDashProducts.length === 0 && <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>해당 조건에 맞는 상품이 없습니다.</div>}
 
+              {/* [수정] 시각화 모드: 차트 위 글씨에 '기준가'만 깔끔하게 표시 */}
               {displayMode === "visual" && filteredDashProducts.map(({p, st}) => (
                 <div key={p.id} style={C.card}>
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
@@ -688,13 +703,14 @@
                   {st.assetStatuses.map(as=>(<div key={as.asset} style={{marginBottom:10}}>
                     <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}>
                       <span>{as.asset}</span>
-                      <span>{as.cur?`$${as.cur}`:"—"} ({as.ratio?as.ratio.toFixed(1):"—"}%)</span>
+                      <span style={{color:"#666"}}>기준가: {as.init ? as.init.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : "—"}</span>
                     </div>
                     <RatioBar ratio={as.ratio} init={as.init} cur={as.cur} barrier={as.barrier} knockIn={p.knockIn}/>
                   </div>))}
                 </div>
               ))}
 
+              {/* [수정] 표 모드: 기초자산 현재가격 추가, 배리어/낙인 절대 가격 아랫줄 추가 */}
               {displayMode === "table" && filteredDashProducts.length > 0 && (
                 <div style={{background:"#fff", border:"0.5px solid #e5e5e5", borderRadius:8, overflowX:"auto", marginBottom:12}}>
                   <table className="data-table" style={{width:"100%", borderCollapse:"collapse", fontSize:13}}>
@@ -702,8 +718,8 @@
                       <tr>
                         <th>상품명</th>
                         <th>다음 평가일</th>
-                        <th>기초자산 (현재비율)</th>
-                        <th>배리어/낙인</th>
+                        <th>기초자산 (현재가/비율)</th>
+                        <th>배리어/낙인 기준가</th>
                         <th>평가 상태</th>
                       </tr>
                     </thead>
@@ -712,14 +728,34 @@
                         <tr key={p.id}>
                           <td style={{fontWeight:500}}>{p.name}</td>
                           <td>{st.next ? <span style={{color:st.next.days<=14?"#BA7517":undefined}}>{fmt(st.next.date)}<br/><small>D-{st.next.days}</small></span> : "—"}</td>
+                          
+                          {/* 기초자산 현재가/비율 */}
                           <td>
                             {st.assetStatuses.map(as => (
-                              <div key={as.asset} style={{marginBottom:4}}>
-                                {as.asset}: <span style={{fontWeight:500, color:as.ratio&&as.ratio>=st.barrier?"#0F6E56":"#A32D2D"}}>{as.ratio?`${as.ratio.toFixed(1)}%`:"—"}</span>
+                              <div key={as.asset} style={{marginBottom:6}}>
+                                <div>{as.asset}</div>
+                                <div style={{fontWeight:500, color:as.ratio&&as.ratio>=st.barrier?"#0F6E56":"#DC2626"}}>
+                                  {as.cur ? as.cur.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : "—"} 
+                                  <span style={{fontSize:11, marginLeft:4}}>({as.ratio?`${as.ratio.toFixed(1)}%`:"—"})</span>
+                                </div>
                               </div>
                             ))}
                           </td>
-                          <td>{st.barrier}% / {p.knockIn}%</td>
+                          
+                          {/* 배리어/낙인 (상단에 퍼센트, 하단에 각 자산별 절대 가격 표기) */}
+                          <td>
+                            <div style={{marginBottom: 6, fontWeight: 500}}>{st.barrier}% / {p.knockIn}%</div>
+                            {st.assetStatuses.map(as => {
+                              const bPrice = as.init ? (as.init * st.barrier / 100).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : "—";
+                              const kPrice = as.init ? (as.init * p.knockIn / 100).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : "—";
+                              return (
+                                <div key={as.asset} style={{fontSize: 11, color: '#888', marginBottom:2}}>
+                                  {as.asset}: {bPrice} / {kPrice}
+                                </div>
+                              );
+                            })}
+                          </td>
+
                           <td><span style={{display:"inline-block",padding:"3px 8px",borderRadius:4,fontSize:11,fontWeight:500,background:st.sBg,color:st.sColor,whiteSpace:"nowrap"}}>{st.sText}</span></td>
                         </tr>
                       ))}
