@@ -367,14 +367,14 @@
       function getInitPrice(pid,asset){const o=initPrices[pid]?.[asset];if(o!==undefined&&o!==0)return o;return db.find(p=>String(p.id)===String(pid))?.initialPrices[asset]??0;}
       function setInitPrice(pid,asset,val){setInitPrices(prev=>({...prev,[pid]:{...(prev[pid]||{}),[asset]:val}}));}
 
-      // === 효율성을 극대화한 시세 조회 함수 ===
+     // === 가장 빠르고 안정적인 시세 조회 함수 (묶음 조회 + 3중 프록시) ===
       async function fetchPrices(){
         setPricesLoading(true);
         const results = {};
         const assetToTicker = {};
         const uniqueTickers = new Set();
         
-        // 1. 중복을 제거하여 야후 서버에 물어볼 고유 티커만 추출
+        // 1. 엑셀에 있는 자산들의 티커를 중복 없이 모음
         allAssets.forEach(asset => {
           const clean = String(asset).trim();
           if(TICKER_MAP[clean]) {
@@ -383,54 +383,48 @@
           }
         });
 
-        const tickerPrices = {};
-
-        // 2. 고유 티커별로 딱 1번씩만 조회 (서버 차단 방지)
-        for (const ticker of uniqueTickers) {
-          try {
-            const ts = Date.now(); // 캐시 무력화
-            const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d&_t=${ts}`;
-            let price = null;
-
-            // 시도 1: allorigins (가장 안정적)
-            try {
-              const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`);
-              if(res.ok) {
-                const data = await res.json();
-                if(data.chart?.result?.[0]?.meta?.regularMarketPrice) price = data.chart.result[0].meta.regularMarketPrice;
-              }
-            } catch(e) {}
-
-            // 시도 2: corsproxy.io (시도 1 실패 시)
-            if(!price) {
-              try {
-                const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
-                if(res.ok) {
-                  const data = await res.json();
-                  if(data.chart?.result?.[0]?.meta?.regularMarketPrice) price = data.chart.result[0].meta.regularMarketPrice;
-                }
-              } catch(e) {}
-            }
-
-            if(price) tickerPrices[ticker] = price;
-          } catch(err) {
-            console.error(`[${ticker}] 에러:`, err);
-          }
+        if (uniqueTickers.size > 0) {
+          // 2. 여러 종목을 쉼표로 연결 (예: MU,PLTR,TSLA,NVDA) -> 한 번의 요청으로 끝냄
+          const symbols = Array.from(uniqueTickers).join(',');
+          const targetUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
           
-          await new Promise(r => setTimeout(r, 600)); // 다음 조회까지 0.6초 대기
-        }
+          // 3. 우회 서버(프록시) 3중 대비책 준비 (1번이 막히면 2번, 2번 막히면 3번)
+          const proxies = [
+            `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
+            `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+            `https://thingproxy.freeboard.io/fetch/${targetUrl}`
+          ];
 
-        // 3. 받아온 가격을 화면에 표시할 원래 이름들에 매핑
-        allAssets.forEach(asset => {
-          const clean = String(asset).trim();
-          const t = assetToTicker[clean];
-          if(t && tickerPrices[t]) {
-            results[clean] = tickerPrices[t];
+          let data = null;
+          
+          // 4. 서버를 하나씩 찔러보고 성공하면 즉시 종료 (보통 1~2초 내 완료)
+          for (const proxy of proxies) {
+            try {
+              const res = await fetch(proxy);
+              if (res.ok) {
+                data = await res.json();
+                if (data?.quoteResponse?.result) break; // 성공 시 반복문 탈출
+              }
+            } catch(e) {
+              console.warn("중계 서버 1곳 지연, 즉시 다음 서버로 재시도합니다.");
+            }
           }
-        });
-        
-        if(Object.keys(results).length === 0 && uniqueTickers.size > 0) {
-          alert("야후 파이낸스 서버가 일시적으로 조회를 차단했습니다. 잠시 후 다시 시도해주세요.");
+
+          // 5. 한 번에 받아온 모든 가격을 화면에 매핑
+          if (data && data.quoteResponse && data.quoteResponse.result) {
+            const tickerPrices = {};
+            data.quoteResponse.result.forEach(quote => {
+              if (quote.regularMarketPrice) tickerPrices[quote.symbol] = quote.regularMarketPrice;
+            });
+
+            allAssets.forEach(asset => {
+              const clean = String(asset).trim();
+              const t = assetToTicker[clean];
+              if (t && tickerPrices[t]) results[clean] = tickerPrices[t];
+            });
+          } else {
+            alert("일시적인 네트워크 혼잡입니다. 약 5~10초 뒤에 다시 눌러주세요.");
+          }
         }
         
         setPrices(prev=>({...prev,...results}));
