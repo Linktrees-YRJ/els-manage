@@ -383,11 +383,32 @@
         setPricesLoading(false);
       }
 
-      function calcStatus(p){
-        const next=getNextEval(p); const idx=next?p.evaluationDates.findIndex(([e])=>e===next.date):p.evaluationDates.length-1;
+      function calcStatus(p, historicalKiHit = false){
+        const next=getNextEval(p);
+        const idx=next?p.evaluationDates.findIndex(([e])=>e===next.date):p.evaluationDates.length-1;
         const barrier=p.earlyBarriers[idx]??p.earlyBarriers[p.earlyBarriers.length-1];
-        const assetStatuses=p.assets.map(asset=>{const cur=prices[asset]||null;const init=getInitPrice(p.id,asset);const ratio=(cur&&init>0)?(cur/init)*100:null;return{asset,cur,init,ratio,isKnockedIn:ratio!==null?ratio<p.knockIn:null,canRedeem:ratio!==null?ratio>=barrier:null,barrier};});
-        return{assetStatuses,anyKnockedIn:assetStatuses.some(a=>a.isKnockedIn===true),canRedeem:assetStatuses.every(a=>a.canRedeem===true),barrier,next};
+        
+        const assetStatuses=p.assets.map(asset=>{
+          const cur=prices[asset]||null;
+          const init=getInitPrice(p.id,asset);
+          const ratio=(cur&&init>0)?(cur/init)*100:null;
+          return {asset, cur, init, ratio, canRedeem:ratio!==null?ratio>=barrier:null, barrier};
+        });
+
+        const canRedeem = assetStatuses.every(a=>a.canRedeem===true);
+        // 현재가 기준 낙인 여부 (추후 과거 3년 데이터 연동 시 historicalKiHit으로 대체)
+        const isKnockedIn = historicalKiHit || assetStatuses.some(a=>a.ratio !== null && a.ratio < p.knockIn);
+
+        // 회원님이 요청하신 4단계 상태 정의
+        let sText = "관찰 중", sBg = "#eee", sColor = "#888";
+        if(canRedeem !== null) {
+          if(!isKnockedIn && canRedeem)      { sText = "조기상환 가능";    sBg = "#E1F5EE"; sColor = "#0F6E56"; } // 1. 정상 조기상환
+          else if(!isKnockedIn && !canRedeem){ sText = "순연 예상";        sBg = "#F2F4F7"; sColor = "#555555"; } // 2. 정상 순연
+          else if(isKnockedIn && canRedeem)  { sText = "낙인터치 상환가능"; sBg = "#FAEEDA"; sColor = "#BA7517"; } // 3. 기사회생
+          else if(isKnockedIn && !canRedeem) { sText = "낙인터치 손실위험"; sBg = "#FCEBEB"; sColor = "#A32D2D"; } // 4. 위험 상태
+        }
+
+        return {assetStatuses, isKnockedIn, canRedeem, barrier, next, sText, sBg, sColor};
       }
 
       const C={
@@ -602,7 +623,7 @@
                   return(<div key={p.id} style={{...C.card,marginBottom:12}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                       <div><span style={{fontSize:15,fontWeight:500}}>{p.name}</span>{p.isLizard&&<span style={{marginLeft:6,fontSize:11,padding:"1px 6px",borderRadius:4,background:"#FAEEDA",color:"#BA7517"}}>리자드</span>}{st.next&&<span style={{fontSize:12,color:"#888",marginLeft:8}}>D-{st.next.days} ({fmt(st.next.date)})</span>}</div>
-                      <span style={{display:"inline-block",padding:"3px 10px",borderRadius:6,fontSize:12,fontWeight:500,background:sBg,color:sColor}}>{st.anyKnockedIn?"낙인 발생":st.canRedeem?"조기상환 가능":"관찰 중"}</span>
+                      <span style={{display:"inline-block",padding:"3px 10px",borderRadius:6,fontSize:12,fontWeight:500,background:st.sBg,color:st.sColor}}>{st.sText}</span>
                     </div>
                     {st.assetStatuses.map(({asset,cur,init,ratio,isKnockedIn,barrier})=>(
                       <div key={asset} style={{marginBottom:12,paddingBottom:12,borderBottom:"0.5px solid #eee"}}>
