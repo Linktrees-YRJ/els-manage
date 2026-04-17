@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ELS 관리 시스템</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;}
+    input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
+    input:focus{outline:2px solid #185FA5;outline-offset:1px;}
+    button:active{transform:scale(0.98);}
+    ::-webkit-scrollbar{width:6px;height:6px;}
+    ::-webkit-scrollbar-track{background:#f1f1f1;}
+    ::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px;}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    const SB_URL = "https://ignwckfmtkczginohdyl.supabase.co";
+    const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlnbndja2ZtdGtjemdpbm9oZHlsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0MDU0MDQsImV4cCI6MjA5MTk4MTQwNH0.WpFZ7mfGeafwulE1Q64jJeALs9NDa32wyEtUl4pVYoA";
+    const ADMIN_EMAIL = "jaeyeoplee2@gmail.com";
+
+    const sbH = (token) => ({
+      "Content-Type":"application/json",
+      "apikey": SB_KEY,
+      "Authorization": `Bearer ${token||SB_KEY}`
+    });
+
+    const sb = {
+      async get(path, token){ const r=await fetch(`${SB_URL}/rest/v1/${path}`,{headers:{...sbH(token),"Prefer":"return=representation"}}); return r.json(); },
+      async post(path, body, token){ const r=await fetch(`${SB_URL}/rest/v1/${path}`,{method:"POST",headers:{...sbH(token),"Prefer":"return=representation"},body:JSON.stringify(body)}); return r.json(); },
+      async patch(path, body, token){ const r=await fetch(`${SB_URL}/rest/v1/${path}`,{method:"PATCH",headers:{...sbH(token),"Prefer":"return=minimal"},body:JSON.stringify(body)}); return r.status; },
+      async del(path, token){ const r=await fetch(`${SB_URL}/rest/v1/${path}`,{method:"DELETE",headers:sbH(token)}); return r.status; },
+      async signIn(email, pw){
+        const r=await fetch(`${SB_URL}/auth/v1/token?grant_type=password`,{method:"POST",headers:{"Content-Type":"application/json","apikey":SB_KEY},body:JSON.stringify({email,password:pw})});
+        return r.json();
+      },
+      async signUp(email, pw){
+        const r=await fetch(`${SB_URL}/auth/v1/signup`,{method:"POST",headers:{"Content-Type":"application/json","apikey":SB_KEY},body:JSON.stringify({email,password:pw})});
+        return r.json();
+      },
+      async signOut(token){ await fetch(`${SB_URL}/auth/v1/logout`,{method:"POST",headers:{"apikey":SB_KEY,"Authorization":`Bearer ${token}`}}); },
+    };
+
+    function parseElsExcel(wb){
+      const toJ=name=>{const s=wb.Sheets[name];return s?XLSX.utils.sheet_to_json(s,{defval:""}):[];};
+      const products=toJ("Products"),underlyings=toJ("Underlyings"),schedules=toJ("Schedules");
+      return products.map(p=>{
+        const code=String(p.product_code);
+        const assets=underlyings.filter(u=>String(u.product_code)===code);
+        const assetNames=assets.map(a=>String(a.asset_name));
+        const initialPrices={}; assets.forEach(a=>{initialPrices[String(a.asset_name)]=Number(a.initial_price)||0;});
+        const earlyBarriers=(String(p.barriers||"")).split(/[-,]/).map(Number).filter(n=>!isNaN(n));
+        const sched=schedules.filter(s=>String(s.product_code)===code);
+        const earlyRows=sched.filter(s=>String(s.period)!=="만기");
+        const evaluationDates=earlyRows.map(s=>[String(s.eval_date).slice(0,10),String(s.payment_date).slice(0,10)]);
+        let maturityMonths=36;
+        const tm=String(p.term||""),my=tm.match(/(\d+)\s*년/),mm=tm.match(/(\d+)\s*개월/);
+        if(my)maturityMonths=parseInt(my[1])*12; if(mm)maturityMonths+=(my?parseInt(mm[1]):parseInt(mm[1]));
+        let redemptionCycle=6;
+        if(tm.includes("4개월"))redemptionCycle=4; else if(tm.includes("3개월"))redemptionCycle=3;
+        const isLizard=!!(p.special_note&&String(p.special_note).includes("리자드"));
+        return{id:code,name:String(p.full_name||code),assets:assetNames,annualRate:Number(p.max_annual_yield)||0,maturityMonths,redemptionCycle,earlyBarriers,knockIn:Number(p.ki_level)||30,issueDate:String(p.issue_date).slice(0,10),maturityDate:String(p.maturity_date).slice(0,10),initialPrices,evaluationDates,isLizard,_underlyings:assets,_schedules:sched};
+      });
+    }
+
+    const TICKER_MAP={"마이크론":"MU","팔란티어":"PLTR","테슬라":"TSLA","인텔":"INTC","브로드컴":"AVGO","S&P500":"^GSPC","NASDAQ100":"^NDX"};
+    const TODAY=new Date("2026-04-17");
+    function fmt(s){if(!s)return"";const d=new Date(s);return`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;}
+    function daysUntil(s){return Math.ceil((new Date(s)-TODAY)/86400000);}
+    function getNextEval(p){for(const[e]of(p.evaluationDates||[])){const d=daysUntil(e);if(d>=0)return{date:e,days:d};}return null;}
+
+    function RatioBar({ratio,barrier,knockIn}){
+      if(ratio===null)return<div style={{fontSize:12,color:"#aaa",padding:"8px 0"}}>기준가 미입력</div>;
+      const MIN=0,MAX=150,pct=v=>Math.max(0,Math.min(100,(v-MIN)/(MAX-MIN)*100));
+      const kiPct=pct(knockIn),barPct=pct(barrier),curPct=pct(ratio);
+      const curColor=ratio<knockIn?"#A32D2D":ratio<barrier?"#BA7517":"#0F6E56";
+      const labels=[{id:"ki",pct:kiPct},{id:"bar",pct:barPct},{id:"cur",pct:curPct}].sort((a,b)=>a.pct-b.pct);
+      for(let i=1;i<labels.length;i++)if(labels[i].pct-labels[i-1].pct<8)labels[i].pct=labels[i-1].pct+8;
+      const lm={};labels.forEach(l=>lm[l.id]=l.pct);
+      return(
+        <div style={{padding:"8px 0 4px"}}>
+          <div style={{position:"relative",height:8,background:"#e8e8e8",borderRadius:4,margin:"0 0 22px"}}>
+            <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${kiPct}%`,background:"rgba(162,45,45,0.12)",borderRadius:"4px 0 0 4px"}}/>
+            <div style={{position:"absolute",left:`${kiPct}%`,top:0,bottom:0,width:`${barPct-kiPct}%`,background:"rgba(186,117,23,0.10)"}}/>
+            <div style={{position:"absolute",left:`${barPct}%`,top:0,bottom:0,right:0,background:"rgba(15,110,86,0.10)",borderRadius:"0 4px 4px 0"}}/>
+            <div style={{position:"absolute",left:`${kiPct}%`,top:-4,bottom:-4,width:2,background:"#A32D2D",transform:"translateX(-50%)",zIndex:2}}/>
+            <div style={{position:"absolute",left:`${barPct}%`,top:-4,bottom:-4,width:2,background:"#BA7517",transform:"translateX(-50%)",zIndex:2}}/>
+            <div style={{position:"absolute",left:`${curPct}%`,top:"50%",transform:"translate(-50%,-50%)",width:13,height:13,background:curColor,borderRadius:"50%",border:"2px solid #fff",zIndex:3,outline:`2px solid ${curColor}`}}/>
+            <div style={{position:"absolute",left:`${lm.ki}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:"#A32D2D",whiteSpace:"nowrap",fontWeight:500}}>{knockIn}%</div>
+            <div style={{position:"absolute",left:`${lm.bar}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:"#BA7517",whiteSpace:"nowrap",fontWeight:500}}>{barrier}%</div>
+            <div style={{position:"absolute",left:`${lm.cur}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:curColor,whiteSpace:"nowrap",fontWeight:700}}>{ratio.toFixed(1)}%</div>
+          </div>
+          <div style={{display:"flex",gap:14,fontSize:11,color:"#888"}}>
+            <span><span style={{color:"#A32D2D",fontWeight:500}}>●</span> 낙인</span>
+            <span><span style={{color:"#BA7517",fontWeight:500}}>●</span> 배리어</span>
+            <span><span style={{color:curColor,fontWeight:500}}>●</span> 현재가</span>
+          </div>
+        </div>
+      );
+    }
+
+    function App(){
+      const [session,setSession]=useState(null);
+      const [screen,setScreen]=useState("login");
+      const [authTab,setAuthTab]=useState("login");
+      const [email,setEmail]=useState(""); const [pw,setPw]=useState(""); const [authErr,setAuthErr]=useState(""); const [authLoading,setAuthLoading]=useState(false);
+      const isAdmin=session?.user?.email===ADMIN_EMAIL;
+      const [db,setDb]=useState([]); const [dbLoading,setDbLoading]=useState(false);
+      const [accounts,setAccounts]=useState([]); const [activeTab,setActiveTab]=useState(0); const [accsLoading,setAccsLoading]=useState(false); const [saving,setSaving]=useState(false);
+      const [editMode,setEditMode]=useState(false);
+      const [addModal,setAddModal]=useState(null); const [checkedAdd,setCheckedAdd]=useState({}); const [selectedDelete,setSelectedDelete]=useState({});
+      const [textInput,setTextInput]=useState(""); const [textMatched,setTextMatched]=useState(null); const [imgLoading,setImgLoading]=useState(false);
+      const [detailProduct,setDetailProduct]=useState(null);
+      const [mainTab,setMainTab]=useState("list");
+      const [dashView,setDashView]=useState("account");
+      const [prices,setPrices]=useState({}); const [pricesLoading,setPricesLoading]=useState(false); const [lastUpdated,setLastUpdated]=useState(null);
+      const [initPrices,setInitPrices]=useState({});
+      const [editingTabIdx,setEditingTabIdx]=useState(null); const [tabNameInput,setTabNameInput]=useState("");
+      const [xlsxLoading,setXlsxLoading]=useState(false); const [xlsxStatus,setXlsxStatus]=useState(null);
+
+      const loadDb=useCallback(async(token)=>{
+        setDbLoading(true);
+        try{
+          const [prods,unders,scheds]=await Promise.all([
+            sb.get("products?select=*&order=id",token),
+            sb.get("underlyings?select=*",token),
+            sb.get("schedules?select=*&order=product_id,sort_order",token),
+          ]);
+          if(!Array.isArray(prods)){setDbLoading(false);return;}
+          setDb(prods.map(p=>{
+            const assets=unders.filter(u=>u.product_id===p.id);
+            const assetNames=assets.map(a=>a.asset_name);
+            const initialPrices={}; assets.forEach(a=>{initialPrices[a.asset_name]=Number(a.initial_price)||0;});
+            const early=scheds.filter(s=>s.product_id===p.id&&s.period!=="만기");
+            return{id:p.id,name:p.name,assets:assetNames,annualRate:Number(p.annual_rate),maturityMonths:p.maturity_months,redemptionCycle:p.redemption_cycle,earlyBarriers:p.early_barriers||[],knockIn:Number(p.knock_in),issueDate:p.issue_date,maturityDate:p.maturity_date,initialPrices,evaluationDates:early.map(s=>[s.eval_date,s.payment_date]),isLizard:p.is_lizard};
+          }));
+        }catch(e){console.error(e);}
+        setDbLoading(false);
+      },[]);
+
+      const loadAccounts=useCallback(async(token)=>{
+        setAccsLoading(true);
+        try{
+          const accs=await sb.get("accounts?select=*,account_products(product_id,amount)&order=sort_order",token);
+          if(!Array.isArray(accs)||accs.length===0){
+            const res=await sb.post("accounts",{name:"계좌 1",sort_order:0},token);
+            setAccounts([{id:res[0].id,name:res[0].name,products:{}}]);
+          } else {
+            setAccounts(accs.map(a=>({id:a.id,name:a.name,products:Object.fromEntries((a.account_products||[]).map(ap=>[ap.product_id,ap.amount]))})));
+          }
+        }catch(e){console.error(e);}
+        setAccsLoading(false);
+      },[]);
+
+      async function handleLogin(){
+        setAuthLoading(true);setAuthErr("");
+        try{
+          const data=await sb.signIn(email,pw);
+          if(data.access_token){setSession(data);setScreen("main");loadDb(data.access_token);loadAccounts(data.access_token);}
+          else setAuthErr(data.error_description||data.message||"로그인 실패. 이메일/비밀번호를 확인하세요.");
+        }catch(e){setAuthErr("네트워크 오류: "+e.message);}
+        setAuthLoading(false);
+      }
+      async function handleSignUp(){
+        setAuthLoading(true);setAuthErr("");
+        try{
+          const data=await sb.signUp(email,pw);
+          if(data.user&&!data.error)setAuthErr("✓ 가입 완료! 이메일 확인 후 로그인하세요.");
+          else setAuthErr(data.error_description||data.message||"가입 실패");
+        }catch(e){setAuthErr("네트워크 오류: "+e.message);}
+        setAuthLoading(false);
+      }
+      async function handleLogout(){if(session)await sb.signOut(session.access_token);setSession(null);setScreen("login");setDb([]);setAccounts([]);setEditMode(false);}
+
+      async function saveAccountProducts(accId,products){
+        setSaving(true);
+        const token=session.access_token;
+        await sb.del(`account_products?account_id=eq.${accId}`,token);
+        const rows=Object.entries(products).map(([pid,amt])=>({account_id:accId,product_id:String(pid),amount:amt}));
+        if(rows.length>0) await fetch(`${SB_URL}/rest/v1/account_products`,{method:"POST",headers:{...sbH(token),"Prefer":"return=minimal"},body:JSON.stringify(rows)});
+        setSaving(false);
+      }
+
+      async function addAccount(){
+        const token=session.access_token;
+        const res=await sb.post("accounts",{name:`계좌 ${accounts.length+1}`,sort_order:accounts.length},token);
+        setAccounts(prev=>[...prev,{id:res[0].id,name:res[0].name,products:{}}]);
+        setActiveTab(accounts.length);
+      }
+      async function dupAccount(){
+        const token=session.access_token;
+        const res=await sb.post("accounts",{name:acc.name+" (복사)",sort_order:accounts.length},token);
+        const newId=res[0].id;
+        const rows=Object.entries(acc.products).map(([pid,amt])=>({account_id:newId,product_id:String(pid),amount:amt}));
+        if(rows.length>0) await fetch(`${SB_URL}/rest/v1/account_products`,{method:"POST",headers:{...sbH(token),"Prefer":"return=minimal"},body:JSON.stringify(rows)});
+        setAccounts(prev=>[...prev,{id:newId,name:res[0].name,products:{...acc.products}}]);
+        setActiveTab(accounts.length);
+      }
+      async function delAccount(){
+        if(accounts.length===1)return;
+        await sb.del(`accounts?id=eq.${acc.id}`,session.access_token);
+        setAccounts(prev=>prev.filter((_,i)=>i!==activeTab));
+        setActiveTab(Math.max(0,activeTab-1));
+      }
+      async function renameAccount(idx,name){
+        await sb.patch(`accounts?id=eq.${accounts[idx].id}`,{name},session.access_token);
+        setAccounts(prev=>prev.map((a,i)=>i===idx?{...a,name}:a));
+      }
+
+      async function handleXlsxUpload(e){
+        const file=e.target.files[0];if(!file)return;
+        setXlsxLoading(true);setXlsxStatus(null);
+        try{
+          const buf=await file.arrayBuffer();
+          const wb=XLSX.read(buf,{type:"array",cellDates:true});
+          const parsed=parseElsExcel(wb);
+          if(parsed.length===0){setXlsxStatus({ok:false,msg:"상품 데이터를 찾을 수 없습니다."});setXlsxLoading(false);return;}
+          const token=session.access_token;
+          const h={...sbH(token),"Prefer":"return=minimal"};
+          await fetch(`${SB_URL}/rest/v1/schedules?id=gt.0`,{method:"DELETE",headers:h});
+          await fetch(`${SB_URL}/rest/v1/underlyings?id=gt.0`,{method:"DELETE",headers:h});
+          await fetch(`${SB_URL}/rest/v1/products?id=neq.NONE`,{method:"DELETE",headers:h});
+          const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knockIn,issue_date:p.issueDate||null,maturity_date:p.maturityDate||null,is_lizard:p.isLizard}));
+          await fetch(`${SB_URL}/rest/v1/products`,{method:"POST",headers:h,body:JSON.stringify(prodRows)});
+          const underRows=parsed.flatMap(p=>p._underlyings.map(u=>({product_id:p.id,asset_name:String(u.asset_name),initial_price:Number(u.initial_price)||0})));
+          if(underRows.length>0) await fetch(`${SB_URL}/rest/v1/underlyings`,{method:"POST",headers:h,body:JSON.stringify(underRows)});
+          const rawS=XLSX.utils.sheet_to_json(wb.Sheets["Schedules"],{defval:""});
+          const schedRows=rawS.map((s,i)=>({product_id:String(s.product_code),period:String(s.period),eval_date:String(s.eval_date).slice(0,10)||null,payment_date:String(s.payment_date).slice(0,10)||null,barrier_pct:Number(s.barrier_pct)||null,yield_pct:Number(s.yield_pct)||null,sort_order:i}));
+          if(schedRows.length>0) await fetch(`${SB_URL}/rest/v1/schedules`,{method:"POST",headers:h,body:JSON.stringify(schedRows)});
+          setXlsxStatus({ok:true,msg:`✓ ${parsed.length}개 상품이 저장되었습니다.`});
+          await loadDb(token);
+        }catch(err){setXlsxStatus({ok:false,msg:`오류: ${err.message}`});}
+        setXlsxLoading(false);
+      }
+
+      const acc=accounts[activeTab]||accounts[0]||{id:null,name:"",products:{}};
+      const myProductIds=Object.keys(acc.products||{}).map(String);
+      const myProducts=db.filter(p=>myProductIds.includes(String(p.id)));
+      const totalAmt=myProducts.reduce((s,p)=>s+(acc.products[p.id]||0),0);
+      const weightedRate=totalAmt>0?myProducts.reduce((s,p)=>s+(acc.products[p.id]||0)*p.annualRate,0)/totalAmt:0;
+      const upcomingEvals=myProducts.map(p=>{const n=getNextEval(p);return n&&n.days<=14?{product:p,...n}:null;}).filter(Boolean).sort((a,b)=>a.days-b.days);
+      const allProductIds=[...new Set(accounts.flatMap(a=>Object.keys(a.products||{}).map(String)))];
+      const dashProducts=dashView==="account"?myProducts:db.filter(p=>allProductIds.includes(String(p.id)));
+      const allAssets=[...new Set(dashProducts.flatMap(p=>p.assets))];
+
+      function setAmt(pid,val){setAccounts(prev=>prev.map((a,i)=>i===activeTab?{...a,products:{...a.products,[pid]:Math.max(0,val)}}:a));}
+      function addAmtFn(pid,delta){setAccounts(prev=>prev.map((a,i)=>i===activeTab?{...a,products:{...a.products,[pid]:Math.max(0,(a.products[pid]||0)+delta)}}:a));}
+      function openAddModal(mode){const init={};db.forEach(p=>{if(!myProductIds.includes(String(p.id)))init[p.id]=true;});setCheckedAdd(init);setTextInput("");setTextMatched(null);setAddModal(mode);}
+      function confirmAdd(){const toAdd=Object.keys(checkedAdd).filter(k=>checkedAdd[k]);setAccounts(prev=>prev.map((a,i)=>{if(i!==activeTab)return a;const np={...a.products};toAdd.forEach(id=>{if(!(String(id) in np))np[String(id)]=0;});return{...a,products:np};}));setAddModal(null);}
+      function deleteSelected(){setAccounts(prev=>prev.map((a,i)=>{if(i!==activeTab)return a;const np={...a.products};Object.keys(selectedDelete).filter(k=>selectedDelete[k]).forEach(k=>delete np[k]);return{...a,products:np};}));setSelectedDelete({});}
+      function handleTextMatch(){const nums=textInput.match(/\d+/g)||[];const matched=db.filter(p=>{const pn=p.name.match(/\d+/g)||[];return nums.some(n=>pn.includes(n));}).filter(p=>!myProductIds.includes(String(p.id)));const init={};matched.forEach(p=>init[p.id]=true);setCheckedAdd(init);setTextMatched(matched);}
+      function getInitPrice(pid,asset){const o=initPrices[pid]?.[asset];if(o!==undefined&&o!==0)return o;return db.find(p=>String(p.id)===String(pid))?.initialPrices[asset]??0;}
+      function setInitPrice(pid,asset,val){setInitPrices(prev=>({...prev,[pid]:{...(prev[pid]||{}),[asset]:val}}));}
+
+      async function fetchPrices(){
+        setPricesLoading(true);
+        const results={};
+        await Promise.all(allAssets.map(async asset=>{
+          const ticker=TICKER_MAP[asset];if(!ticker)return;
+          try{
+            const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:300,tools:[{type:"web_search_20250305",name:"web_search"}],messages:[{role:"user",content:`${asset}(${ticker}) 현재 주가 숫자만. 예: 95.23`}]})});
+            const data=await res.json();
+            const txt=data.content.filter(c=>c.type==="text").map(c=>c.text).join("");
+            const num=parseFloat(txt.replace(/[^0-9.]/g,""));
+            if(!isNaN(num))results[asset]=num;
+          }catch(e){}
+        }));
+        setPrices(prev=>({...prev,...results}));
+        setLastUpdated(new Date().toLocaleTimeString("ko-KR"));
+        setPricesLoading(false);
+      }
+
+      function calcStatus(p){
+        const next=getNextEval(p);
+        const idx=next?p.evaluationDates.findIndex(([e])=>e===next.date):p.evaluationDates.length-1;
+        const barrier=p.earlyBarriers[idx]??p.earlyBarriers[p.earlyBarriers.length-1];
+        const assetStatuses=p.assets.map(asset=>{const cur=prices[asset]||null;const init=getInitPrice(p.id,asset);const ratio=(cur&&init>0)?(cur/init)*100:null;return{asset,cur,init,ratio,isKnockedIn:ratio!==null?ratio<p.knockIn:null,canRedeem:ratio!==null?ratio>=barrier:null,barrier};});
+        return{assetStatuses,anyKnockedIn:assetStatuses.some(a=>a.isKnockedIn===true),canRedeem:assetStatuses.every(a=>a.canRedeem===true),barrier,next};
+      }
+
+      const C={
+        wrap:{fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",color:"#111",minHeight:"100vh",background:"#f5f5f5"},
+        card:{background:"#fff",border:"0.5px solid #e5e5e5",borderRadius:12,padding:"16px 20px",marginBottom:12},
+        btn:{background:"#fff",border:"0.5px solid #ccc",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:14,color:"#111"},
+        btnP:{background:"#185FA5",border:"none",borderRadius:8,padding:"8px 18px",cursor:"pointer",fontSize:14,color:"#fff",fontWeight:500},
+        btnD:{background:"#A32D2D",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:14,color:"#fff"},
+        input:{border:"1px solid #ddd",borderRadius:8,padding:"8px 12px",fontSize:15,width:"100%",boxSizing:"border-box",background:"#fff",color:"#111"},
+        label:{fontSize:13,color:"#666",marginBottom:4,display:"block"},
+        metricCard:{background:"#f5f7fa",borderRadius:8,padding:"12px 16px",flex:1,minWidth:0},
+      };
+
+      if(screen==="login") return (
+        <div style={{...C.wrap,display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh"}}>
+          <div style={{...C.card,width:340,margin:"0 auto"}}>
+            <h2 style={{fontSize:20,fontWeight:500,marginBottom:16}}>ELS 관리 시스템</h2>
+            <div style={{display:"flex",marginBottom:20,border:"1px solid #ddd",borderRadius:8,overflow:"hidden"}}>
+              {[["login","로그인"],["signup","회원가입"]].map(([key,label])=>(
+                <button key={key} onClick={()=>{setAuthTab(key);setAuthErr("");}} style={{flex:1,padding:"8px",border:"none",background:authTab===key?"#185FA5":"transparent",color:authTab===key?"#fff":"#666",cursor:"pointer",fontSize:14}}>{label}</button>
+              ))}
+            </div>
+            <div style={{marginBottom:12}}><label style={C.label}>이메일</label><input style={C.input} type="email" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(authTab==="login"?handleLogin():handleSignUp())} placeholder="이메일 주소"/></div>
+            <div style={{marginBottom:16}}><label style={C.label}>비밀번호</label><input style={C.input} type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(authTab==="login"?handleLogin():handleSignUp())} placeholder="비밀번호"/></div>
+            {authErr&&<p style={{color:authErr.includes("완료")?"#0F6E56":"#A32D2D",fontSize:13,marginBottom:10}}>{authErr}</p>}
+            <button style={{...C.btnP,width:"100%",padding:10}} onClick={authTab==="login"?handleLogin:handleSignUp} disabled={authLoading}>{authLoading?"처리 중...":(authTab==="login"?"로그인":"회원가입")}</button>
+          </div>
+        </div>
+      );
+
+      if(screen==="admin") return (
+        <div style={C.wrap}>
+          <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{fontSize:17,fontWeight:500}}>관리자 — 상품 DB</span>
+            <button style={C.btn} onClick={()=>setScreen("main")}>메인으로</button>
+          </div>
+          <div style={{padding:16,maxWidth:800,margin:"0 auto"}}>
+            <div style={{...C.card,marginBottom:16}}>
+              <div style={{fontSize:15,fontWeight:500,marginBottom:4}}>엑셀 파일로 DB 업데이트</div>
+              <p style={{fontSize:13,color:"#666",marginBottom:12}}>Products / Underlyings / Schedules 3개 시트가 포함된 xlsx를 업로드하면 전체 DB가 교체됩니다.</p>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <label style={{...C.btnP,display:"inline-flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+                  📂 엑셀 업로드
+                  <input type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleXlsxUpload}/>
+                </label>
+                {xlsxLoading&&<span style={{fontSize:13,color:"#888"}}>저장 중...</span>}
+              </div>
+              {xlsxStatus&&<div style={{marginTop:12,padding:"10px 14px",borderRadius:8,background:xlsxStatus.ok?"#E1F5EE":"#FCEBEB",color:xlsxStatus.ok?"#0F6E56":"#A32D2D",fontSize:13,fontWeight:500}}>{xlsxStatus.msg}</div>}
+            </div>
+            <div style={C.card}>
+              <div style={{fontSize:14,fontWeight:500,marginBottom:10}}>현재 DB ({db.length}개)</div>
+              {db.map(p=>(
+                <div key={p.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"0.5px solid #eee",fontSize:13}}>
+                  <span style={{fontWeight:500}}>{p.name}{p.isLizard&&<span style={{marginLeft:6,fontSize:11,padding:"1px 6px",borderRadius:4,background:"#FAEEDA",color:"#BA7517"}}>리자드</span>}</span>
+                  <span style={{color:"#666"}}>{p.assets.join("/")} | 연 {p.annualRate}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+
+      return (
+        <div style={C.wrap}>
+          <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{fontSize:17,fontWeight:500}}>ELS 관리</span>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              {isAdmin&&<button style={{...C.btn,fontSize:13}} onClick={()=>setScreen("admin")}>관리자</button>}
+              <span style={{fontSize:13,color:"#666"}}>{session?.user?.email}</span>
+              <button style={{...C.btn,fontSize:13}} onClick={handleLogout}>로그아웃</button>
+            </div>
+          </div>
+
+          <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"0 16px",display:"flex",alignItems:"center",gap:4,overflowX:"auto"}}>
+            {accounts.map((a,i)=>(
+              <div key={a.id} onClick={()=>{setActiveTab(i);setEditMode(false);}} style={{padding:"10px 14px",cursor:"pointer",fontSize:14,borderBottom:i===activeTab?"2px solid #185FA5":"2px solid transparent",color:i===activeTab?"#185FA5":"#888",whiteSpace:"nowrap"}}>
+                {editingTabIdx===i
+                  ?<input autoFocus style={{...C.input,width:80,padding:"2px 6px",fontSize:13}} value={tabNameInput} onChange={e=>setTabNameInput(e.target.value)} onBlur={()=>{renameAccount(i,tabNameInput);setEditingTabIdx(null);}} onKeyDown={e=>{if(e.key==="Enter"){renameAccount(i,tabNameInput);setEditingTabIdx(null);}}} onClick={e=>e.stopPropagation()}/>
+                  :<span onDoubleClick={e=>{e.stopPropagation();setEditingTabIdx(i);setTabNameInput(a.name);}}>{a.name}</span>
+                }
+              </div>
+            ))}
+            <button style={{...C.btn,padding:"4px 10px",fontSize:20,border:"none",color:"#888"}} onClick={addAccount}>+</button>
+            <button style={{...C.btn,padding:"4px 8px",fontSize:12}} onClick={dupAccount}>복제</button>
+            {accounts.length>1&&<button style={{...C.btn,padding:"4px 8px",fontSize:12,color:"#A32D2D"}} onClick={delAccount}>삭제</button>}
+          </div>
+
+          <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",display:"flex",padding:"0 16px"}}>
+            {[["list","상품 목록"],["dashboard","평가 현황판"]].map(([key,label])=>(
+              <button key={key} onClick={()=>setMainTab(key)} style={{padding:"10px 16px",fontSize:14,border:"none",borderBottom:mainTab===key?"2px solid #185FA5":"2px solid transparent",background:"transparent",color:mainTab===key?"#185FA5":"#888",cursor:"pointer",fontWeight:mainTab===key?500:400}}>{label}</button>
+            ))}
+          </div>
+
+          {(dbLoading||accsLoading)&&<div style={{textAlign:"center",padding:40,color:"#888"}}>데이터 로딩 중...</div>}
+          {!dbLoading&&!accsLoading&&<div style={{padding:16,maxWidth:800,margin:"0 auto"}}>
+
+            {mainTab==="list"&&!editMode&&(<>
+              <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap"}}>
+                {[["총 가입금액",`${totalAmt.toLocaleString()} 만원`],["가중평균 연수익률",`${weightedRate.toFixed(2)} %`],["가입 상품 수",`${myProducts.length} 개`]].map(([label,val])=>(
+                  <div key={label} style={C.metricCard}><div style={{fontSize:12,color:"#888",marginBottom:4}}>{label}</div><div style={{fontSize:22,fontWeight:500}}>{val}</div></div>
+                ))}
+              </div>
+              {upcomingEvals.length>0&&(
+                <div style={{...C.card,background:"#FFF8E7",border:"0.5px solid #FAC775"}}>
+                  <div style={{fontSize:13,fontWeight:500,color:"#BA7517",marginBottom:8}}>⚡ 2주 내 평가 예정</div>
+                  {upcomingEvals.map(({product,date,days})=>(
+                    <div key={product.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"3px 0",borderBottom:"0.5px solid #FAC775"}}>
+                      <span>{product.name}</span><span style={{color:"#BA7517"}}>{fmt(date)} ({days===0?"오늘":`D-${days}`})</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {myProducts.length===0
+                ?<div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>가입 상품이 없습니다.<br/>수정 버튼을 눌러 상품을 추가하세요.</div>
+                :myProducts.map(p=>{
+                  const next=getNextEval(p);const st=calcStatus(p);
+                  const tagBg=st.anyKnockedIn?"#FCEBEB":st.canRedeem?"#E1F5EE":"#FAEEDA";
+                  const tagColor=st.anyKnockedIn?"#A32D2D":st.canRedeem?"#0F6E56":"#BA7517";
+                  return(<div key={p.id} style={{...C.card,cursor:"pointer"}} onClick={()=>setDetailProduct(p)}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                      <div><span style={{fontSize:15,fontWeight:500}}>{p.name}</span>{p.isLizard&&<span style={{marginLeft:6,fontSize:11,padding:"1px 6px",borderRadius:4,background:"#FAEEDA",color:"#BA7517"}}>리자드</span>}<span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:12,fontWeight:500,background:tagBg,color:tagColor,marginLeft:6}}>{st.anyKnockedIn?"낙인":st.canRedeem?"상환가능":"관찰중"}</span></div>
+                      <span style={{fontSize:15,color:"#185FA5",fontWeight:500}}>{(acc.products[p.id]||0).toLocaleString()}만원</span>
+                    </div>
+                    <div style={{fontSize:12,color:"#888",marginTop:6}}>{p.assets.join(" / ")} | 연 {p.annualRate}% | 낙인 {p.knockIn}%</div>
+                    {next&&<div style={{fontSize:12,color:"#aaa",marginTop:4}}>다음 평가: {fmt(next.date)} (D-{next.days})</div>}
+                  </div>);
+                })
+              }
+              <button style={{...C.btnP,width:"100%",marginTop:4}} onClick={()=>setEditMode(true)}>수정</button>
+            </>)}
+
+            {mainTab==="list"&&editMode&&(<>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <span style={{fontSize:15,fontWeight:500}}>수정 모드</span>
+                <div style={{display:"flex",gap:8}}>
+                  {Object.values(selectedDelete).some(Boolean)&&<button style={C.btnD} onClick={deleteSelected}>선택 삭제</button>}
+                  <button style={C.btn} onClick={()=>{setEditMode(false);setSelectedDelete({});}}>취소</button>
+                </div>
+              </div>
+              {myProducts.map(p=>(
+                <div key={p.id} style={C.card}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                    <input type="checkbox" checked={!!selectedDelete[p.id]} onChange={e=>setSelectedDelete(prev=>({...prev,[p.id]:e.target.checked}))} style={{width:16,height:16}}/>
+                    <span style={{fontSize:14,fontWeight:500,flex:1}}>{p.name}</span>
+                    <span style={{fontSize:13,color:"#888"}}>연 {p.annualRate}%</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"stretch",border:"1px solid #888",borderRadius:10,overflow:"hidden"}}>
+                    <input type="number" value={acc.products[p.id]||0} onFocus={e=>{if(e.target.value==="0")e.target.value="";}} onBlur={e=>{if(e.target.value==="")setAmt(p.id,0);}} onChange={e=>setAmt(p.id,parseInt(e.target.value)||0)} style={{width:90,padding:"9px 10px",fontSize:14,border:"none",borderRight:"1px solid #888",outline:"none",background:"#fff",color:"#111"}}/>
+                    <span style={{display:"flex",alignItems:"center",padding:"0 8px",fontSize:13,color:"#888",borderRight:"1px solid #888",background:"#f5f5f5",whiteSpace:"nowrap"}}>만원</span>
+                    {[["+100만",100],["+10만",10],["+1만",1]].map(([label,val])=>(
+                      <button key={label} onClick={()=>addAmtFn(p.id,val)} style={{flex:1,padding:"9px 6px",fontSize:13,border:"none",borderRight:"1px solid #888",background:"#fff",color:"#111",cursor:"pointer",whiteSpace:"nowrap"}}>{label}</button>
+                    ))}
+                    <button onClick={()=>setAmt(p.id,0)} style={{padding:"9px 10px",fontSize:13,border:"none",background:"#fff",color:"#A32D2D",cursor:"pointer",whiteSpace:"nowrap"}}>초기화</button>
+                  </div>
+                </div>
+              ))}
+              <button style={{...C.btn,width:"100%",marginBottom:8}} onClick={()=>openAddModal("list")}>+ 상품 추가</button>
+              <button style={{...C.btnP,width:"100%",opacity:saving?0.6:1}} onClick={async()=>{await saveAccountProducts(acc.id,acc.products);setEditMode(false);}}>
+                {saving?"저장 중...":"저장"}
+              </button>
+            </>)}
+
+            {mainTab==="dashboard"&&(<>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+                <div style={{display:"flex",border:"1px solid #ddd",borderRadius:8,overflow:"hidden"}}>
+                  {[["account","현재 계좌"],["all","전체 계좌"]].map(([key,label])=>(
+                    <button key={key} onClick={()=>setDashView(key)} style={{padding:"7px 14px",fontSize:13,border:"none",background:dashView===key?"#185FA5":"#fff",color:dashView===key?"#fff":"#555",cursor:"pointer"}}>{label}</button>
+                  ))}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  {lastUpdated&&<span style={{fontSize:12,color:"#888"}}>업데이트: {lastUpdated}</span>}
+                  <button style={{...C.btnP,padding:"7px 14px",fontSize:13}} onClick={fetchPrices} disabled={pricesLoading}>{pricesLoading?"조회 중...":"시세 새로고침"}</button>
+                </div>
+              </div>
+              {Object.keys(prices).length>0&&(
+                <div style={{...C.card,marginBottom:12}}>
+                  <div style={{fontSize:13,fontWeight:500,marginBottom:10,color:"#555"}}>기초자산 현재가</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                    {allAssets.map(asset=>(
+                      <div key={asset} style={{background:"#f5f7fa",borderRadius:8,padding:"8px 14px",minWidth:100,textAlign:"center"}}>
+                        <div style={{fontSize:11,color:"#888",marginBottom:2}}>{asset}</div>
+                        <div style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>{prices[asset]?`$${prices[asset].toLocaleString(undefined,{maximumFractionDigits:2})}`:"—"}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {pricesLoading&&<div style={{...C.card,textAlign:"center",padding:30,color:"#888"}}>시세를 조회하고 있습니다...</div>}
+              {dashProducts.length===0
+                ?<div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>표시할 상품이 없습니다.</div>
+                :dashProducts.map(p=>{
+                  const st=calcStatus(p);
+                  const sColor=st.anyKnockedIn?"#A32D2D":st.canRedeem?"#0F6E56":"#BA7517";
+                  const sBg=st.anyKnockedIn?"#FCEBEB":st.canRedeem?"#E1F5EE":"#FAEEDA";
+                  return(<div key={p.id} style={{...C.card,marginBottom:12}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                      <div><span style={{fontSize:15,fontWeight:500}}>{p.name}</span>{p.isLizard&&<span style={{marginLeft:6,fontSize:11,padding:"1px 6px",borderRadius:4,background:"#FAEEDA",color:"#BA7517"}}>리자드</span>}{st.next&&<span style={{fontSize:12,color:"#888",marginLeft:8}}>D-{st.next.days} ({fmt(st.next.date)})</span>}</div>
+                      <span style={{display:"inline-block",padding:"3px 10px",borderRadius:6,fontSize:12,fontWeight:500,background:sBg,color:sColor}}>{st.anyKnockedIn?"낙인 발생":st.canRedeem?"조기상환 가능":"관찰 중"}</span>
+                    </div>
+                    {st.assetStatuses.map(({asset,cur,ratio,isKnockedIn,barrier})=>(
+                      <div key={asset} style={{marginBottom:12,paddingBottom:12,borderBottom:"0.5px solid #eee"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                          <span style={{fontSize:13,fontWeight:500}}>{asset}</span>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:11,color:"#aaa"}}>기준가</span><input type="number" value={getInitPrice(p.id,asset)||""} onChange={e=>setInitPrice(p.id,asset,parseFloat(e.target.value)||0)} placeholder="입력" style={{width:72,padding:"3px 6px",fontSize:12,border:"1px solid #ccc",borderRadius:5,textAlign:"right"}}/></div>
+                            <span style={{fontSize:13,color:"#185FA5",fontWeight:500}}>{cur?`$${cur.toLocaleString(undefined,{maximumFractionDigits:2})}`:"—"}</span>
+                          </div>
+                        </div>
+                        <RatioBar ratio={ratio} barrier={barrier} knockIn={p.knockIn}/>
+                        {isKnockedIn===true&&<div style={{fontSize:12,color:"#A32D2D",marginTop:2,fontWeight:500}}>낙인 발생 — 만기 상환 주의</div>}
+                      </div>
+                    ))}
+                    <div style={{display:"flex",gap:14,fontSize:12,color:"#888",flexWrap:"wrap"}}>
+                      <span>낙인 {p.knockIn}%</span><span>다음 배리어 {st.barrier}%</span><span>연 {p.annualRate}%</span>
+                      {dashView==="all"&&<span style={{marginLeft:"auto",color:"#185FA5"}}>{accounts.filter(a=>a.products[p.id]!==undefined).map(a=>a.name).join(", ")}</span>}
+                    </div>
+                  </div>);
+                })
+              }
+            </>)}
+          </div>}
+
+          {addModal&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",zIndex:100}}>
+              <div style={{background:"#fff",width:"100%",maxHeight:"85vh",overflowY:"auto",borderRadius:"16px 16px 0 0",padding:20}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                  <span style={{fontSize:16,fontWeight:500}}>상품 추가</span>
+                  <button style={C.btn} onClick={()=>setAddModal(null)}>닫기</button>
+                </div>
+                <div style={{display:"flex",gap:8,marginBottom:16}}>
+                  <button style={{...C.btn,background:addModal==="list"?"#B5D4F4":undefined}} onClick={()=>openAddModal("list")}>전체 목록</button>
+                  <button style={{...C.btn,background:addModal==="text"?"#B5D4F4":undefined}} onClick={()=>openAddModal("text")}>텍스트 입력</button>
+                </div>
+                {addModal==="text"&&(<div style={{marginBottom:12}}><textarea style={{...C.input,height:80,resize:"vertical"}} placeholder="상품명 또는 회차 번호 입력" value={textInput} onChange={e=>setTextInput(e.target.value)}/><button style={{...C.btnP,marginTop:8}} onClick={handleTextMatch}>검색</button></div>)}
+                {(addModal==="list"||((addModal==="text")&&textMatched!==null))&&(()=>{
+                  const list=addModal==="list"?db.filter(p=>!myProductIds.includes(String(p.id))):textMatched;
+                  const allChecked=list.length>0&&list.every(p=>checkedAdd[p.id]);
+                  return(<>
+                    {list.length>0&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}><button style={{...C.btn,fontSize:12,padding:"4px 10px"}} onClick={()=>{const next={};list.forEach(p=>next[p.id]=!allChecked);setCheckedAdd(prev=>({...prev,...next}));}}>{allChecked?"전체 해제":"전체 선택"}</button></div>}
+                    {list.map(p=>(<div key={p.id} onClick={()=>setCheckedAdd(prev=>({...prev,[p.id]:!prev[p.id]}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"0.5px solid #eee",cursor:"pointer"}}><input type="checkbox" checked={!!checkedAdd[p.id]} onChange={()=>{}} style={{width:16,height:16,pointerEvents:"none"}}/><div style={{flex:1}}><div style={{fontSize:14,fontWeight:500}}>{p.name}</div><div style={{fontSize:12,color:"#666"}}>{p.assets.join(" / ")} | 연 {p.annualRate}% | KI {p.knockIn}%</div></div></div>))}
+                    {list.length===0&&<div style={{textAlign:"center",color:"#aaa",padding:20}}>추가할 수 있는 상품이 없습니다.</div>}
+                    <button style={{...C.btnP,width:"100%",marginTop:16}} onClick={confirmAdd}>확인</button>
+                  </>);
+                })()}
+              </div>
+            </div>
+          )}
+
+          {detailProduct&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",zIndex:100}}>
+              <div style={{background:"#fff",width:"100%",maxHeight:"85vh",overflowY:"auto",borderRadius:"16px 16px 0 0",padding:20}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                  <span style={{fontSize:16,fontWeight:500}}>{detailProduct.name}</span>
+                  <button style={C.btn} onClick={()=>setDetailProduct(null)}>닫기</button>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+                  {[["기초자산",detailProduct.assets.join(", ")],["연 수익률",detailProduct.annualRate+"%"],["낙인배리어",detailProduct.knockIn+"%"],["만기",detailProduct.maturityMonths+"개월"],["발행일",fmt(detailProduct.issueDate)],["만기일",fmt(detailProduct.maturityDate)]].map(([k,v])=>(
+                    <div key={k} style={{background:"#f5f7fa",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:12,color:"#666"}}>{k}</div><div style={{fontSize:14,fontWeight:500,marginTop:2}}>{v}</div></div>
+                  ))}
+                </div>
+                <div style={{fontSize:13,fontWeight:500,marginBottom:8}}>차수별 조기상환 배리어</div>
+                {detailProduct.evaluationDates.map(([evalD,payD],idx)=>{
+                  const days=daysUntil(evalD);const barrier=detailProduct.earlyBarriers[idx]??detailProduct.earlyBarriers[detailProduct.earlyBarriers.length-1];const isPast=days<0;
+                  return(<div key={idx} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"0.5px solid #eee",opacity:isPast?0.4:1}}><div><span style={{fontSize:13}}>{idx+1}차 {fmt(evalD)}</span><span style={{fontSize:12,color:"#888",marginLeft:8}}>지급 {fmt(payD)}</span></div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:13,color:"#185FA5"}}>{barrier}%</span>{!isPast&&days<=14&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:"#FAEEDA",color:"#BA7517",fontWeight:500}}>D-{days}</span>}</div></div>);
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
