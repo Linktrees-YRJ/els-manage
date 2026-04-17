@@ -83,11 +83,12 @@
         return{id:code,name:String(p.full_name||code),assets:assetNames,annualRate:Number(p.max_annual_yield)||0,maturityMonths,redemptionCycle,earlyBarriers,knockIn:Number(p.ki_level)||30,issueDate:formatExcelDate(p.issue_date),maturityDate:formatExcelDate(p.maturity_date),initialPrices,evaluationDates,isLizard,_underlyings:assets,_schedules:sched};
       });
     }
-
 // 티커(기호) 매핑 - 엑셀의 기초자산 이름과 일치해야 합니다. (다양한 표기법 추가)
     const TICKER_MAP = {
-      // 1. 개별 종목 (주식)
-      "마이크론":"MU", "팔란티어":"PLTR", "테슬라":"TSLA", "인텔":"INTC", 
+      // 1. 개별 종목 (주식) - 알려주신 정확한 이름 추가
+      "마이크론":"MU", "마이크론 테크놀로지":"MU", 
+      "팔란티어":"PLTR", "팔란티어 테크":"PLTR", 
+      "테슬라":"TSLA", "인텔":"INTC", 
       "브로드컴":"AVGO", "엔비디아":"NVDA", "애플":"AAPL", "AMD":"AMD",
 
       // 2. 주가지수 (띄어쓰기 및 한글/영문 변형 모두 포함)
