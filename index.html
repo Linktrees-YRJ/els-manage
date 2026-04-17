@@ -349,12 +349,11 @@
         const hasPriceData = assetStatuses.every(a => a.ratio !== null);
 
         if (hasPriceData) {
-          if (!isKnockedIn && canRedeem)      { sText = "조기상환 가능";    sBg = "#E1F5EE"; sColor = "#0F6E56"; }
-          else if (!isKnockedIn && !canRedeem){ sText = "순연 예상";        sBg = "#F2F4F7"; sColor = "#555555"; }
-          else if (isKnockedIn && canRedeem)  { sText = "낙인터치 상환가능"; sBg = "#FAEEDA"; sColor = "#BA7517"; }
-          else if (isKnockedIn && !canRedeem) { sText = "낙인터치 손실위험"; sBg = "#FCEBEB"; sColor = "#A32D2D"; }
+          if (!isKnockedIn && canRedeem)      { sText = "조기상환 가능";    sBg = "#E1F5EE"; sColor = "#0F6E56"; } // 기존 초록색 유지
+          else if (!isKnockedIn && !canRedeem){ sText = "순연 예상";        sBg = "#FFF4E5"; sColor = "#D97706"; } // 주황색
+          else if (isKnockedIn && canRedeem)  { sText = "낙인터치 상환가능"; sBg = "#F3E8FF"; sColor = "#7E22CE"; } // 보라색
+          else if (isKnockedIn && !canRedeem) { sText = "낙인터치 손실위험"; sBg = "#FEE2E2"; sColor = "#DC2626"; } // 붉은색
         }
-
         return{assetStatuses, isKnockedIn, canRedeem, barrier, next, sText, sBg, sColor};
       }
 
