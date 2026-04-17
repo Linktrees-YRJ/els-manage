@@ -50,6 +50,18 @@
       async signOut(token){ await fetch(`${SB_URL}/auth/v1/logout`,{method:"POST",headers:{"apikey":SB_KEY,"Authorization":`Bearer ${token}`}}); },
     };
 
+    // 엑셀 날짜 형식을 DB에 맞는 YYYY-MM-DD로 변환하는 안전한 함수 추가
+    function formatExcelDate(d){
+      if(!d) return null;
+      if(d instanceof Date) {
+        const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+        return `${y}-${m}-${day}`;
+      }
+      const s = String(d).trim();
+      if(s.length >= 10) return s.slice(0,10);
+      return null;
+    }
+
     function parseElsExcel(wb){
       const toJ=name=>{const s=wb.Sheets[name];return s?XLSX.utils.sheet_to_json(s,{defval:""}):[];};
       const products=toJ("Products"),underlyings=toJ("Underlyings"),schedules=toJ("Schedules");
@@ -61,22 +73,22 @@
         const earlyBarriers=(String(p.barriers||"")).split(/[-,]/).map(Number).filter(n=>!isNaN(n));
         const sched=schedules.filter(s=>String(s.product_code)===code);
         const earlyRows=sched.filter(s=>String(s.period)!=="만기");
-        const evaluationDates=earlyRows.map(s=>[String(s.eval_date).slice(0,10),String(s.payment_date).slice(0,10)]);
+        const evaluationDates=earlyRows.map(s=>[formatExcelDate(s.eval_date)||" ",formatExcelDate(s.payment_date)||" "]);
         let maturityMonths=36;
         const tm=String(p.term||""),my=tm.match(/(\d+)\s*년/),mm=tm.match(/(\d+)\s*개월/);
         if(my)maturityMonths=parseInt(my[1])*12; if(mm)maturityMonths+=(my?parseInt(mm[1]):parseInt(mm[1]));
         let redemptionCycle=6;
         if(tm.includes("4개월"))redemptionCycle=4; else if(tm.includes("3개월"))redemptionCycle=3;
         const isLizard=!!(p.special_note&&String(p.special_note).includes("리자드"));
-        return{id:code,name:String(p.full_name||code),assets:assetNames,annualRate:Number(p.max_annual_yield)||0,maturityMonths,redemptionCycle,earlyBarriers,knockIn:Number(p.ki_level)||30,issueDate:String(p.issue_date).slice(0,10),maturityDate:String(p.maturity_date).slice(0,10),initialPrices,evaluationDates,isLizard,_underlyings:assets,_schedules:sched};
+        return{id:code,name:String(p.full_name||code),assets:assetNames,annualRate:Number(p.max_annual_yield)||0,maturityMonths,redemptionCycle,earlyBarriers,knockIn:Number(p.ki_level)||30,issueDate:formatExcelDate(p.issue_date),maturityDate:formatExcelDate(p.maturity_date),initialPrices,evaluationDates,isLizard,_underlyings:assets,_schedules:sched};
       });
     }
 
     const TICKER_MAP={"마이크론":"MU","팔란티어":"PLTR","테슬라":"TSLA","인텔":"INTC","브로드컴":"AVGO","S&P500":"^GSPC","NASDAQ100":"^NDX"};
     const TODAY=new Date("2026-04-17");
-    function fmt(s){if(!s)return"";const d=new Date(s);return`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;}
-    function daysUntil(s){return Math.ceil((new Date(s)-TODAY)/86400000);}
-    function getNextEval(p){for(const[e]of(p.evaluationDates||[])){const d=daysUntil(e);if(d>=0)return{date:e,days:d};}return null;}
+    function fmt(s){if(!s||s.trim()==="")return"";const d=new Date(s);if(isNaN(d))return s;return`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;}
+    function daysUntil(s){if(!s||s.trim()==="")return 9999;return Math.ceil((new Date(s)-TODAY)/86400000);}
+    function getNextEval(p){for(const[e]of(p.evaluationDates||[])){const d=daysUntil(e);if(d>=0&&d!==9999)return{date:e,days:d};}return null;}
 
     function RatioBar({ratio,barrier,knockIn}){
       if(ratio===null)return<div style={{fontSize:12,color:"#aaa",padding:"8px 0"}}>기준가 미입력</div>;
@@ -224,21 +236,45 @@
           const wb=XLSX.read(buf,{type:"array",cellDates:true});
           const parsed=parseElsExcel(wb);
           if(parsed.length===0){setXlsxStatus({ok:false,msg:"상품 데이터를 찾을 수 없습니다."});setXlsxLoading(false);return;}
+          
           const token=session.access_token;
           const h={...sbH(token),"Prefer":"return=minimal"};
-          await fetch(`${SB_URL}/rest/v1/schedules?id=gt.0`,{method:"DELETE",headers:h});
-          await fetch(`${SB_URL}/rest/v1/underlyings?id=gt.0`,{method:"DELETE",headers:h});
-          await fetch(`${SB_URL}/rest/v1/products?id=neq.NONE`,{method:"DELETE",headers:h});
-          const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knockIn,issue_date:p.issueDate||null,maturity_date:p.maturityDate||null,is_lizard:p.isLizard}));
-          await fetch(`${SB_URL}/rest/v1/products`,{method:"POST",headers:h,body:JSON.stringify(prodRows)});
+          
+          // 에러를 확실히 잡아내는 fetch 래퍼 함수
+          async function dbFetch(url, method, body) {
+            const res = await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined });
+            if (!res.ok) {
+              const errText = await res.text();
+              let errMsg = errText;
+              try { errMsg = JSON.parse(errText).message || errText; } catch(err){}
+              throw new Error(errMsg);
+            }
+          }
+
+          // 기존 데이터 삭제
+          await dbFetch(`${SB_URL}/rest/v1/schedules?id=gt.0`, "DELETE");
+          await dbFetch(`${SB_URL}/rest/v1/underlyings?id=gt.0`, "DELETE");
+          await dbFetch(`${SB_URL}/rest/v1/products?id=neq.NONE`, "DELETE");
+          
+          // 상품 저장
+          const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knockIn,issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard}));
+          await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
+          
+          // 기초자산 저장
           const underRows=parsed.flatMap(p=>p._underlyings.map(u=>({product_id:p.id,asset_name:String(u.asset_name),initial_price:Number(u.initial_price)||0})));
-          if(underRows.length>0) await fetch(`${SB_URL}/rest/v1/underlyings`,{method:"POST",headers:h,body:JSON.stringify(underRows)});
+          if(underRows.length>0) await dbFetch(`${SB_URL}/rest/v1/underlyings`, "POST", underRows);
+          
+          // 스케줄 저장
           const rawS=XLSX.utils.sheet_to_json(wb.Sheets["Schedules"],{defval:""});
-          const schedRows=rawS.map((s,i)=>({product_id:String(s.product_code),period:String(s.period),eval_date:String(s.eval_date).slice(0,10)||null,payment_date:String(s.payment_date).slice(0,10)||null,barrier_pct:Number(s.barrier_pct)||null,yield_pct:Number(s.yield_pct)||null,sort_order:i}));
-          if(schedRows.length>0) await fetch(`${SB_URL}/rest/v1/schedules`,{method:"POST",headers:h,body:JSON.stringify(schedRows)});
-          setXlsxStatus({ok:true,msg:`✓ ${parsed.length}개 상품이 저장되었습니다.`});
+          const schedRows=rawS.map((s,i)=>({product_id:String(s.product_code),period:String(s.period),eval_date:formatExcelDate(s.eval_date),payment_date:formatExcelDate(s.payment_date),barrier_pct:Number(s.barrier_pct)||null,yield_pct:Number(s.yield_pct)||null,sort_order:i}));
+          if(schedRows.length>0) await dbFetch(`${SB_URL}/rest/v1/schedules`, "POST", schedRows);
+          
+          setXlsxStatus({ok:true,msg:`✓ ${parsed.length}개 상품이 정상적으로 저장되었습니다.`});
           await loadDb(token);
-        }catch(err){setXlsxStatus({ok:false,msg:`오류: ${err.message}`});}
+        }catch(err){
+          console.error(err);
+          setXlsxStatus({ok:false,msg:`업로드 실패: ${err.message}`});
+        }
         setXlsxLoading(false);
       }
 
