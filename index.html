@@ -343,28 +343,48 @@
       function getInitPrice(pid,asset){const o=initPrices[pid]?.[asset];if(o!==undefined&&o!==0)return o;return db.find(p=>String(p.id)===String(pid))?.initialPrices[asset]??0;}
       function setInitPrice(pid,asset,val){setInitPrices(prev=>({...prev,[pid]:{...(prev[pid]||{}),[asset]:val}}));}
 
+      // 단 한 번의 요청으로 모든 시세를 가져오는 향상된 함수
       async function fetchPrices(){
         setPricesLoading(true);
-        const results={};
-        await Promise.all(allAssets.map(async asset=>{
-          const ticker = TICKER_MAP[asset];
-          if(!ticker) return; 
+        const results = {};
+        
+        // 1. 조회할 자산들의 엑셀 이름 공백 제거 및 중복 티커 추출
+        const validAssets = allAssets.filter(asset => TICKER_MAP[String(asset).trim()]);
+        const tickersToFetch = [...new Set(validAssets.map(asset => TICKER_MAP[String(asset).trim()]))];
+        
+        if (tickersToFetch.length > 0) {
           try {
-            const targetUrl = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`);
-            const res = await fetch(`https://api.allorigins.win/get?url=${targetUrl}`);
-            if (!res.ok) throw new Error('네트워크 에러');
+            // 2. 여러 종목을 쉼표로 연결하여 한 번에 조회 (예: NVDA,TSLA,AMD)
+            const symbols = tickersToFetch.join(',');
+            const targetUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
+            
+            // 3. 안정적인 프록시 raw 데이터 방식 사용
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+            const res = await fetch(proxyUrl);
+            
+            if (!res.ok) throw new Error('네트워크 응답 에러');
             const data = await res.json();
-            const yahooData = JSON.parse(data.contents);
-            if(yahooData.chart && yahooData.chart.result && yahooData.chart.result.length > 0) {
-               const price = yahooData.chart.result[0].meta.regularMarketPrice;
-               if(price !== undefined && price !== null) {
-                 results[asset] = price;
-               }
+            
+            // 4. 받아온 전체 데이터를 결과 객체에 정확히 매핑
+            if(data.quoteResponse && data.quoteResponse.result) {
+              data.quoteResponse.result.forEach(quote => {
+                const ticker = quote.symbol;
+                const price = quote.regularMarketPrice;
+                
+                // 해당 티커를 사용하는 엑셀의 자산 이름들을 모두 찾아 가격 저장
+                validAssets.forEach(asset => {
+                  if(TICKER_MAP[String(asset).trim()] === ticker && price) {
+                    results[asset] = price;
+                  }
+                });
+              });
             }
           } catch(e) {
-            console.error(`[${asset}] 조회 실패:`, e);
+            console.error("전체 시세 조회 실패:", e);
+            alert("무료 중계 서버 지연으로 조회를 실패했습니다. 잠시 후 다시 눌러주세요.");
           }
-        }));
+        }
+        
         setPrices(prev=>({...prev,...results}));
         setLastUpdated(new Date().toLocaleTimeString("ko-KR"));
         setPricesLoading(false);
