@@ -81,6 +81,20 @@
       "닛케이225": "니케이225", "NIKKEI225": "니케이225", "NIKKEI 225": "니케이225"
     };
 
+    // ★ [기능 추가] 상품 이름 깔끔하게 줄여주는 도우미 함수
+    function getShortName(fullName) {
+      if(!fullName) return "";
+      const m = fullName.match(/^(.+?)\s*제?(\d+)회/);
+      if(m) {
+        // '증권'이라는 글자가 있으면 빼버리고 번호만 붙임
+        const comp = m[1].replace(/증권/g, '').trim();
+        return `${comp} ${m[2]}회`;
+      }
+      // '회'가 없는 이름이면 너무 길지 않게 22자에서 자름
+      if(fullName.length > 22) return fullName.substring(0, 22) + "...";
+      return fullName;
+    }
+
     function parseElsExcel(wb){
       const toJ=name=>{const s=wb.Sheets[name];return s?XLSX.utils.sheet_to_json(s,{defval:""}):[];};
       const products=toJ("Products"),underlyings=toJ("Underlyings"),schedules=toJ("Schedules");
@@ -125,7 +139,6 @@
     function daysUntil(s){if(!s||s.trim()==="")return 9999;return Math.ceil((new Date(s)-TODAY)/86400000);}
     function getNextEval(p){for(const[e]of(p.evaluationDates||[])){const d=daysUntil(e);if(d>=0&&d!==9999)return{date:e,days:d};}return null;}
 
-    // [수정된 기능] 상하단 이중 레이블이 적용된 RatioBar
     function RatioBar({ratio, init, cur, barrier, knockIn}){
       if(!init || init <= 0) return <div style={{fontSize:12,color:"#A32D2D",padding:"8px 0",fontWeight:500}}>⚠️ 기준가 미입력</div>;
       if(cur === null || cur === undefined) return <div style={{fontSize:12,color:"#aaa",padding:"8px 0"}}>종가 데이터 대기 중</div>;
@@ -154,12 +167,10 @@
             <div style={{position:"absolute",left:`${barPct}%`,top:-4,bottom:-4,width:2,background:"#D97706",transform:"translateX(-50%)",zIndex:2}}/>
             <div style={{position:"absolute",left:`${curPct}%`,top:"50%",transform:"translate(-50%,-50%)",width:13,height:13,background:curColor,borderRadius:"50%",border:"2px solid #fff",zIndex:3,outline:`2px solid ${curColor}`}}/>
             
-            {/* 상단 라벨 (금액) */}
             <div style={{position:"absolute",left:`${lm.ki}%`,top:-20,transform:"translateX(-50%)",fontSize:10,color:"#DC2626",whiteSpace:"nowrap",fontWeight:500}}>${kiPrice}</div>
             <div style={{position:"absolute",left:`${lm.bar}%`,top:-20,transform:"translateX(-50%)",fontSize:10,color:"#D97706",whiteSpace:"nowrap",fontWeight:500}}>${barPrice}</div>
             <div style={{position:"absolute",left:`${lm.cur}%`,top:-20,transform:"translateX(-50%)",fontSize:10,color:curColor,whiteSpace:"nowrap",fontWeight:700}}>${curPrice}</div>
 
-            {/* 하단 라벨 (%) */}
             <div style={{position:"absolute",left:`${lm.ki}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:"#DC2626",whiteSpace:"nowrap",fontWeight:500}}>{knockIn}%</div>
             <div style={{position:"absolute",left:`${lm.bar}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:"#D97706",whiteSpace:"nowrap",fontWeight:500}}>{barrier}%</div>
             <div style={{position:"absolute",left:`${lm.cur}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:curColor,whiteSpace:"nowrap",fontWeight:700}}>{ratio.toFixed(1)}%</div>
@@ -371,7 +382,7 @@
         totalAssets.forEach(asset => { if(TICKER_MAP[asset.trim()]) uniqueTickers.add(TICKER_MAP[asset.trim()]); });
 
         if (uniqueTickers.size > 0) {
-          // ★ 여기에 본인의 구글 스크립트 웹 앱 주소를 입력하세요 ★
+          // ★ 본인의 구글 스크립트 웹 앱 주소 기입 필수
           const GAS_URL = "https://script.google.com/macros/s/AKfycbz8AZrPUFy55gwPvM8COb4GExsVtCgmdtXpmCn31BengXymAPz2lNvp0TZMcUtNvG0z/exec";
           try {
             const res = await fetch(`${GAS_URL}?symbols=${Array.from(uniqueTickers).join(',')}`);
@@ -551,7 +562,8 @@
                   return(<div key={p.id} style={{...C.card,cursor:"pointer"}} onClick={()=>setDetailProduct(p)}>
                     <div style={{display:"flex",justifyContent:"space-between"}}>
                       <div>
-                        <span style={{fontSize:15,fontWeight:500}}>{p.name}</span>
+                        {/* [적용] 읽기 모드에서도 깔끔하게 줄여진 상품명 사용 */}
+                        <span style={{fontSize:15,fontWeight:500}}>{getShortName(p.name)}</span>
                         <span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:11,fontWeight:500,background:st.sBg,color:st.sColor,marginLeft:6}}>{st.sText}</span>
                       </div>
                       <span style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>{(acc.products[p.id]||0).toLocaleString()}만원</span>
@@ -588,16 +600,22 @@
                       style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,cursor:"pointer"}}
                     >
                       <input type="checkbox" checked={!!selectedDelete[p.id]} onChange={()=>{}} style={{width:16,height:16,pointerEvents:"none"}}/>
-                      <span style={{fontSize:14,fontWeight:500,flex:1}}>{p.name}</span>
+                      {/* [적용] 수정 모드에서도 짧은 상품명 사용 */}
+                      <span style={{fontSize:14,fontWeight:500,flex:1}}>{getShortName(p.name)}</span>
                       <span style={{fontSize:13,color:"#888"}}>연 {p.annualRate}%</span>
                     </div>
-                    <div style={{display:"flex",alignItems:"stretch",border:"1px solid #888",borderRadius:10,overflow:"hidden"}}>
-                      <input type="number" value={acc.products[p.id]||0} onFocus={e=>{if(e.target.value==="0")e.target.value="";}} onBlur={e=>{if(e.target.value==="")setAmt(p.id,0);}} onChange={e=>setAmt(p.id,parseInt(e.target.value)||0)} style={{width:90,padding:"9px 10px",fontSize:14,border:"none",borderRight:"1px solid #888",outline:"none",background:"#fff",color:"#111"}}/>
-                      <span style={{display:"flex",alignItems:"center",padding:"0 8px",fontSize:13,color:"#888",borderRight:"1px solid #888",background:"#f5f5f5",whiteSpace:"nowrap"}}>만원</span>
-                      {[["+100만",100],["+10만",10],["+1만",1]].map(([label,val])=>(
-                        <button key={label} onClick={()=>addAmtFn(p.id,val)} style={{flex:1,padding:"9px 6px",fontSize:13,border:"none",borderRight:"1px solid #888",background:"#fff",color:"#111",cursor:"pointer",whiteSpace:"nowrap"}}>{label}</button>
-                      ))}
-                      <button onClick={()=>setAmt(p.id,0)} style={{padding:"9px 10px",fontSize:13,border:"none",background:"#fff",color:"#DC2626",cursor:"pointer",whiteSpace:"nowrap"}}>초기화</button>
+                    {/* ★ [개선] 모바일에서 누르기 쉽도록 2줄 레이아웃으로 변경된 입력 폼 */}
+                    <div style={{display:"flex", flexDirection:"column", gap:8}}>
+                      <div style={{display:"flex",alignItems:"stretch",border:"1px solid #888",borderRadius:8,overflow:"hidden"}}>
+                        <input type="number" value={acc.products[p.id]||0} onFocus={e=>{if(e.target.value==="0")e.target.value="";}} onBlur={e=>{if(e.target.value==="")setAmt(p.id,0);}} onChange={e=>setAmt(p.id,parseInt(e.target.value)||0)} style={{flex:1,minWidth:0,padding:"9px 12px",fontSize:15,border:"none",outline:"none",background:"#fff",color:"#111"}}/>
+                        <span style={{display:"flex",alignItems:"center",padding:"0 12px",fontSize:14,color:"#555",borderLeft:"1px solid #888",background:"#f5f5f5",whiteSpace:"nowrap"}}>만원</span>
+                      </div>
+                      <div style={{display:"flex", gap:6}}>
+                        {[["+100만",100],["+10만",10],["+1만",1]].map(([label,val])=>(
+                          <button key={label} onClick={()=>addAmtFn(p.id,val)} style={{flex:1,padding:"8px 0",fontSize:13,border:"1px solid #ccc",borderRadius:6,background:"#fff",color:"#111",cursor:"pointer",whiteSpace:"nowrap"}}>{label}</button>
+                        ))}
+                        <button onClick={()=>setAmt(p.id,0)} style={{flex:1,padding:"8px 0",fontSize:13,border:"1px solid #FCA5A5",borderRadius:6,background:"#FEF2F2",color:"#DC2626",cursor:"pointer",whiteSpace:"nowrap",fontWeight:500}}>초기화</button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -690,15 +708,24 @@
 
               {filteredDashProducts.length === 0 && <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>해당 조건에 맞는 상품이 없습니다.</div>}
 
-              {/* [수정] 시각화 모드: 차트 위 글씨에 '기준가'만 깔끔하게 표시 */}
               {displayMode === "visual" && filteredDashProducts.map(({p, st}) => (
                 <div key={p.id} style={C.card}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                     <div>
-                      <span style={{fontSize:15,fontWeight:500}}>{p.name}</span>
-                      {st.next&&<span style={{fontSize:12,color:"#888",marginLeft:8}}>D-{st.next.days} ({fmt(st.next.date)})</span>}
+                      {/* [적용] 시각화 모드: 깔끔한 상품명 + 소속 계좌 태그 */}
+                      <span style={{fontSize:15,fontWeight:500}}>{getShortName(p.name)}</span>
+                      {dashView === "all" && (
+                        <span style={{display:"inline-flex", gap:4, marginLeft:8, verticalAlign:"middle"}}>
+                          {accounts.filter(a => (a.products[p.id]||0) > 0).map(a => (
+                            <span key={a.id} style={{fontSize:10, padding:"2px 6px", background:"#E2E8F0", color:"#475569", borderRadius:4}}>{a.name}</span>
+                          ))}
+                        </span>
+                      )}
+                      <div style={{marginTop: 4}}>
+                        {st.next&&<span style={{fontSize:12,color:"#888"}}>D-{st.next.days} ({fmt(st.next.date)})</span>}
+                      </div>
                     </div>
-                    <span style={{display:"inline-block",padding:"3px 10px",borderRadius:6,fontSize:12,fontWeight:500,background:st.sBg,color:st.sColor}}>{st.sText}</span>
+                    <span style={{display:"inline-block",padding:"3px 10px",borderRadius:6,fontSize:12,fontWeight:500,background:st.sBg,color:st.sColor,marginLeft:10}}>{st.sText}</span>
                   </div>
                   {st.assetStatuses.map(as=>(<div key={as.asset} style={{marginBottom:10}}>
                     <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}>
@@ -710,7 +737,6 @@
                 </div>
               ))}
 
-              {/* [수정] 표 모드: 기초자산 현재가격 추가, 배리어/낙인 절대 가격 아랫줄 추가 */}
               {displayMode === "table" && filteredDashProducts.length > 0 && (
                 <div style={{background:"#fff", border:"0.5px solid #e5e5e5", borderRadius:8, overflowX:"auto", marginBottom:12}}>
                   <table className="data-table" style={{width:"100%", borderCollapse:"collapse", fontSize:13}}>
@@ -726,10 +752,19 @@
                     <tbody>
                       {filteredDashProducts.map(({p, st}) => (
                         <tr key={p.id}>
-                          <td style={{fontWeight:500}}>{p.name}</td>
+                          <td style={{fontWeight:500}}>
+                            {/* [적용] 표 모드: 깔끔한 상품명 + 소속 계좌 태그 */}
+                            {getShortName(p.name)}
+                            {dashView === "all" && (
+                              <div style={{display:"flex", flexWrap:"wrap", gap:4, marginTop:6}}>
+                                {accounts.filter(a => (a.products[p.id]||0) > 0).map(a => (
+                                  <span key={a.id} style={{fontSize:10, padding:"2px 5px", background:"#E2E8F0", color:"#475569", borderRadius:4}}>{a.name}</span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
                           <td>{st.next ? <span style={{color:st.next.days<=14?"#BA7517":undefined}}>{fmt(st.next.date)}<br/><small>D-{st.next.days}</small></span> : "—"}</td>
                           
-                          {/* 기초자산 현재가/비율 */}
                           <td>
                             {st.assetStatuses.map(as => (
                               <div key={as.asset} style={{marginBottom:6}}>
@@ -742,7 +777,6 @@
                             ))}
                           </td>
                           
-                          {/* 배리어/낙인 (상단에 퍼센트, 하단에 각 자산별 절대 가격 표기) */}
                           <td>
                             <div style={{marginBottom: 6, fontWeight: 500}}>{st.barrier}% / {p.knockIn}%</div>
                             {st.assetStatuses.map(as => {
@@ -788,6 +822,7 @@
                       <div key={p.id} onClick={()=>setCheckedAdd(prev=>({...prev,[p.id]:!prev[p.id]}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"0.5px solid #eee",cursor:"pointer"}}>
                         <input type="checkbox" checked={!!checkedAdd[p.id]} onChange={()=>{}} style={{width:16,height:16,pointerEvents:"none"}}/>
                         <div style={{flex:1}}>
+                          {/* [주의] 모달에서는 원본 풀네임 유지 (정확한 상품 확인을 위해) */}
                           <div style={{fontSize:14,fontWeight:500}}>{p.name}</div>
                           <div style={{fontSize:12,color:"#666"}}>{p.assets.join(" / ")} | 연 {p.annualRate}% | KI {p.knockIn}%</div>
                         </div>
@@ -805,7 +840,8 @@
             <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",zIndex:100}}>
               <div style={{background:"#fff",width:"100%",maxHeight:"85vh",overflowY:"auto",borderRadius:"16px 16px 0 0",padding:20}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-                  <span style={{fontSize:16,fontWeight:500}}>{detailProduct.name}</span>
+                  {/* [적용] 상세 정보 모달 제목에도 축약 이름 사용 */}
+                  <span style={{fontSize:16,fontWeight:500}}>{getShortName(detailProduct.name)}</span>
                   <button style={C.btn} onClick={()=>setDetailProduct(null)}>닫기</button>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
