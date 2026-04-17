@@ -123,7 +123,7 @@
 
     function RatioBar({ratio, init, cur, barrier, knockIn}){
       if(!init || init <= 0) return <div style={{fontSize:12,color:"#A32D2D",padding:"8px 0",fontWeight:500}}>⚠️ 기준가 미입력 (DB 확인 필요)</div>;
-      if(cur === null || cur === undefined) return <div style={{fontSize:12,color:"#aaa",padding:"8px 0"}}>현재가 미입력 (관리자 업데이트 대기)</div>;
+      if(cur === null || cur === undefined) return <div style={{fontSize:12,color:"#aaa",padding:"8px 0"}}>종가 미입력 (관리자 업데이트 대기)</div>;
       const MIN=0, MAX=150, pct=v=>Math.max(0,Math.min(100,(v-MIN)/(MAX-MIN)*100));
       const kiPct=pct(knockIn), barPct=pct(barrier), curPct=pct(ratio);
       const curColor=ratio<knockIn?"#A32D2D":ratio<barrier?"#BA7517":"#0F6E56";
@@ -146,7 +146,7 @@
           <div style={{display:"flex",gap:14,fontSize:11,color:"#888"}}>
             <span><span style={{color:"#A32D2D",fontWeight:500}}>●</span> 낙인</span>
             <span><span style={{color:"#BA7517",fontWeight:500}}>●</span> 배리어</span>
-            <span><span style={{color:curColor,fontWeight:500}}>●</span> 현재가</span>
+            <span><span style={{color:curColor,fontWeight:500}}>●</span> 종가</span>
           </div>
         </div>
       );
@@ -185,7 +185,10 @@
               if (t > latestTime) latestTime = t;
             });
             setPrices(newPrices);
-            if (latestTime > 0) setLastUpdated(new Date(latestTime).toLocaleString("ko-KR"));
+            if (latestTime > 0) {
+              const d = new Date(latestTime);
+              setLastUpdated(`${d.getMonth()+1}월 ${d.getDate()}일 종가 기준`);
+            }
           }
         } catch(e) { console.error("DB 시세 로드 실패", e); }
         setPricesLoading(false);
@@ -439,7 +442,7 @@
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                 <span style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>야후 파이낸스 시세 업데이트 (DB 캐싱)</span>
               </div>
-              <p style={{fontSize:13,color:"#666",marginBottom:12}}>하루 1번 이 버튼을 눌러주세요. 야후에서 현재가를 수집해 DB에 저장하며, 이후 모든 사용자는 지연 시간 없이 0.1초 만에 최신 시세를 볼 수 있습니다.</p>
+              <p style={{fontSize:13,color:"#666",marginBottom:12}}>하루 1번 이 버튼을 눌러주세요. 야후에서 종가를 수집해 DB에 저장하며, 이후 모든 사용자는 지연 시간 없이 0.1초 만에 최신 시세를 볼 수 있습니다.</p>
               <div style={{display:"flex",alignItems:"center",gap:12}}>
                 <button style={{...C.btnP, opacity:pricesLoading?0.6:1}} onClick={updatePricesFromYahoo} disabled={pricesLoading}>
                   {pricesLoading?"데이터 수집 및 저장 중 (약 5~10초)...":"최신 시세 수집 및 DB 덮어쓰기"}
@@ -579,7 +582,7 @@
               </div>
               {Object.keys(prices).length>0&&(
                 <div style={{...C.card,marginBottom:12}}>
-                  <div style={{fontSize:13,fontWeight:500,marginBottom:10,color:"#555"}}>기초자산 현재가</div>
+                  <div style={{fontSize:13,fontWeight:500,marginBottom:10,color:"#555"}}>기초자산 종가</div>
                   <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
                     {allAssets.map(asset=>(
                       <div key={asset} style={{background:"#f5f7fa",borderRadius:8,padding:"8px 14px",minWidth:100,textAlign:"center"}}>
