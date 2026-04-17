@@ -213,13 +213,11 @@
         setDbLoading(false);
       },[]);
 
-      // ★ [중요 수정] 계좌를 불러올 때 '현재 로그인한 유저의 ID'에 해당하는 계좌만 불러오기
       const loadAccounts=useCallback(async(token, userId)=>{
         setAccsLoading(true);
         try{
           const accs=await sb.get(`accounts?select=*,account_products(product_id,amount)&user_id=eq.${userId}&order=sort_order`,token);
           if(!Array.isArray(accs)||accs.length===0){
-            // 계좌가 없으면 현재 로그인한 유저 소유의 계좌 1개 자동 생성
             const res=await sb.post("accounts",{name:"계좌 1",sort_order:0, user_id: userId},token);
             setAccounts([{id:res[0].id,name:res[0].name,products:{}}]);
           } else {
@@ -238,7 +236,6 @@
             setSession(data);
             setScreen("main");
             loadDb(data.access_token);
-            // 로그인 완료 후, 내 아이디(data.user.id)를 함께 전달하여 계좌 조회
             loadAccounts(data.access_token, data.user.id);
             loadPricesFromDB(data.access_token);
           }
@@ -280,7 +277,6 @@
         setSaving(false);
       }
 
-      // ★ [중요 수정] 계좌 추가/복제 시 '내 아이디' 꼬리표 달기
       async function addAccount(){
         const res=await sb.post("accounts",{name:`계좌 ${accounts.length+1}`,sort_order:accounts.length, user_id: session.user.id},session.access_token);
         setAccounts(prev=>[...prev,{id:res[0].id,name:res[0].name,products:{}}]);
@@ -294,7 +290,13 @@
         setAccounts(prev=>[...prev,{id:newId,name:res[0].name,products:{...acc.products}}]);
         setActiveTab(accounts.length);
       }
-      async function delAccount(){if(accounts.length===1)return; if(!window.confirm(`'${acc.name}' 계좌를 정말 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없으며, 담겨있는 상품 정보도 함께 사라집니다.)`)) return; await sb.del(`accounts?id=eq.${acc.id}`,session.access_token);setAccounts(prev=>prev.filter((_,i)=>i!==activeTab));setActiveTab(Math.max(0,activeTab-1));}
+      async function delAccount(){
+        if(accounts.length===1)return; 
+        if(!window.confirm(`'${acc.name}' 계좌를 정말 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없으며, 담겨있는 상품 정보도 함께 사라집니다.)`)) return; 
+        await sb.del(`accounts?id=eq.${acc.id}`,session.access_token);
+        setAccounts(prev=>prev.filter((_,i)=>i!==activeTab));
+        setActiveTab(Math.max(0,activeTab-1));
+      }
       async function renameAccount(idx,name){await sb.patch(`accounts?id=eq.${accounts[idx].id}`,{name},session.access_token);setAccounts(prev=>prev.map((a,i)=>i===idx?{...a,name}:a));}
 
       async function handleXlsxUpload(e){
@@ -318,13 +320,25 @@
         setXlsxLoading(false);
       }
 
+      // 공통 데이터 로직
       const acc=accounts[activeTab]||accounts[0]||{id:null,name:"",products:{}};
       const myProductIds=Object.keys(acc.products||{}).map(String); const myProducts=db.filter(p=>myProductIds.includes(String(p.id)));
-      const totalAmt=myProducts.reduce((s,p)=>s+(acc.products[p.id]||0),0); const weightedRate=totalAmt>0?myProducts.reduce((s,p)=>s+(acc.products[p.id]||0)*p.annualRate,0)/totalAmt:0;
-      const upcomingEvals=myProducts.map(p=>{const n=getNextEval(p);return n&&n.days<=14?{product:p,...n}:null;}).filter(Boolean).sort((a,b)=>a.days-b.days);
       const allProductIds=[...new Set(accounts.flatMap(a=>Object.keys(a.products||{}).map(String)))];
-      
       const rawDashProducts=dashView==="account"?myProducts:db.filter(p=>allProductIds.includes(String(p.id)));
+
+      // ★ [신규] 계좌 잔액 및 수익률 계산 도우미 함수
+      const calcAccMetrics = (accObj) => {
+        const pIds = Object.keys(accObj.products||{}).map(String);
+        const prods = db.filter(p => pIds.includes(String(p.id)));
+        const total = prods.reduce((s,p) => s + (accObj.products[p.id]||0), 0);
+        const rate = total > 0 ? prods.reduce((s,p) => s + (accObj.products[p.id]||0) * p.annualRate, 0) / total : 0;
+        return { total, rate };
+      };
+
+      const currentAccMetrics = calcAccMetrics(acc);
+      const allAccsMetrics = accounts.map(a => ({ name: a.name, ...calcAccMetrics(a) }));
+      const grandTotal = allAccsMetrics.reduce((s, m) => s + m.total, 0);
+      const grandRate = grandTotal > 0 ? allAccsMetrics.reduce((s, m) => s + (m.total * m.rate), 0) / grandTotal : 0;
 
       function setAmt(pid,val){setAccounts(prev=>prev.map((a,i)=>i===activeTab?{...a,products:{...a.products,[pid]:Math.max(0,val)}}:a));}
       function addAmtFn(pid,delta){setAccounts(prev=>prev.map((a,i)=>i===activeTab?{...a,products:{...a.products,[pid]:Math.max(0,(a.products[pid]||0)+delta)}}:a));}
@@ -342,7 +356,7 @@
         totalAssets.forEach(asset => { if(TICKER_MAP[asset.trim()]) uniqueTickers.add(TICKER_MAP[asset.trim()]); });
 
         if (uniqueTickers.size > 0) {
-          // ★ 여기에 본인의 구글 스크립트 웹 앱 주소를 꼭 입력하세요 ★
+          // ★ 여기에 본인의 구글 스크립트 웹 앱 주소를 입력하세요 ★
           const GAS_URL = "https://script.google.com/macros/s/AKfycbwh9Lh5RP3VCMfQIu_zouK0_QgGtngRbE6VUXzL002xdhdRrc1YEg861uyfGB5ctNH1/exec";
           try {
             const res = await fetch(`${GAS_URL}?symbols=${Array.from(uniqueTickers).join(',')}`);
@@ -512,7 +526,10 @@
           <div style={{padding:16,maxWidth:800,margin:"0 auto"}}>
             {mainTab==="list"&&(<>
               {!editMode && (<>
-                <div style={{display:"flex",gap:10,marginBottom:12}}>{[["총 가입금액",`${totalAmt.toLocaleString()}만`],["평균 수익률",`${weightedRate.toFixed(1)}%`]].map(([l,v])=>(<div key={l} style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>{l}</div><div style={{fontSize:20,fontWeight:500}}>{v}</div></div>))}</div>
+                <div style={{display:"flex",gap:10,marginBottom:12}}>
+                  <div style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>{acc.name} 총 가입금액</div><div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.total.toLocaleString()}만</div></div>
+                  <div style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>평균 수익률</div><div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.rate.toFixed(1)}%</div></div>
+                </div>
                 {myProducts.length===0 && <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>가입 상품이 없습니다.<br/>수정 버튼을 눌러 상품을 추가하세요.</div>}
                 {myProducts.map(p=>{
                   const st=calcStatus(p);
@@ -616,6 +633,45 @@
                     </select>
                   </div>
                 </div>
+              </div>
+
+              {/* ★ [신규] 대시보드 계좌 요약 패널 */}
+              <div style={{marginBottom:16}}>
+                {dashView === "account" ? (
+                  <div style={{display:"flex",gap:10}}>
+                    <div style={{...C.metricCard, background:"#fff", border:"1px solid #e5e5e5"}}>
+                      <div style={{fontSize:12,color:"#888"}}>{acc.name} 총 잔액</div>
+                      <div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.total.toLocaleString()}만</div>
+                    </div>
+                    <div style={{...C.metricCard, background:"#fff", border:"1px solid #e5e5e5"}}>
+                      <div style={{fontSize:12,color:"#888"}}>{acc.name} 평균 수익률</div>
+                      <div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.rate.toFixed(1)}%</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{display:"flex", flexDirection:"column", gap:10}}>
+                    <div style={{display:"flex",gap:10}}>
+                      <div style={{...C.metricCard, background:"#E1F5EE", border:"1px solid #c3e6cb"}}>
+                        <div style={{fontSize:12,color:"#0F6E56", fontWeight:500}}>전체 계좌 총 잔액</div>
+                        <div style={{fontSize:20,fontWeight:700,color:"#0F6E56"}}>{grandTotal.toLocaleString()}만</div>
+                      </div>
+                      <div style={{...C.metricCard, background:"#E1F5EE", border:"1px solid #c3e6cb"}}>
+                        <div style={{fontSize:12,color:"#0F6E56", fontWeight:500}}>전체 평균 수익률</div>
+                        <div style={{fontSize:20,fontWeight:700,color:"#0F6E56"}}>{grandRate.toFixed(1)}%</div>
+                      </div>
+                    </div>
+                    {accounts.length > 1 && (
+                      <div style={{display:"flex", gap:10, overflowX:"auto", paddingBottom:4}}>
+                        {allAccsMetrics.map(m => (
+                          <div key={m.name} style={{...C.metricCard, minWidth:140, background:"#fff", border:"1px solid #e5e5e5", padding:"10px 14px"}}>
+                            <div style={{fontSize:13, fontWeight:500, marginBottom:4}}>{m.name}</div>
+                            <div style={{fontSize:13, color:"#555"}}>{m.total.toLocaleString()}만 <span style={{color:"#bbb", margin:"0 4px"}}>|</span> {m.rate.toFixed(1)}%</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {filteredDashProducts.length === 0 && <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>해당 조건에 맞는 상품이 없습니다.</div>}
