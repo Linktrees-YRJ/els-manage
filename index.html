@@ -84,14 +84,21 @@
       });
     }
 
-// 티커(기호) 매핑 - 엑셀의 기초자산 이름과 일치해야 합니다.
+// 티커(기호) 매핑 - 엑셀의 기초자산 이름과 일치해야 합니다. (다양한 표기법 추가)
     const TICKER_MAP = {
+      // 1. 개별 종목 (주식)
       "마이크론":"MU", "팔란티어":"PLTR", "테슬라":"TSLA", "인텔":"INTC", 
-      "브로드컴":"AVGO", "S&P500":"^GSPC", "NASDAQ100":"^NDX",
-      "유로스톡스50":"^STOXX50E", "KOSPI200":"^KS200", "HSCEI":"^HSCE", 
-      "니케이225":"^N225", "엔비디아":"NVDA", "애플":"AAPL", "AMD":"AMD"
-    };
+      "브로드컴":"AVGO", "엔비디아":"NVDA", "애플":"AAPL", "AMD":"AMD",
 
+      // 2. 주가지수 (띄어쓰기 및 한글/영문 변형 모두 포함)
+      "S&P500":"^GSPC", "S&P 500":"^GSPC", 
+      "NASDAQ100":"^NDX", "나스닥100":"^NDX", "나스닥 100":"^NDX",
+      "유로스톡스50":"^STOXX50E", "EURO STOXX 50":"^STOXX50E", "EUROSTOXX50":"^STOXX50E",
+      "KOSPI200":"^KS200", "코스피200":"^KS200", "코스피 200":"^KS200",
+      "HSCEI":"^HSCE", "홍콩H지수":"^HSCE", "홍콩 H지수":"^HSCE",
+      "니케이225":"^N225", "닛케이225":"^N225", "NIKKEI225":"^N225", "NIKKEI 225":"^N225"
+    };
+    
     const TODAY=new Date("2026-04-17");
     function fmt(s){if(!s||s.trim()==="")return"";const d=new Date(s);if(isNaN(d))return s;return`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;}
     function daysUntil(s){if(!s||s.trim()==="")return 9999;return Math.ceil((new Date(s)-TODAY)/86400000);}
