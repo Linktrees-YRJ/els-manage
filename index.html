@@ -50,8 +50,6 @@
       async signOut(token){ await fetch(`${SB_URL}/auth/v1/logout`,{method:"POST",headers:{"apikey":SB_KEY,"Authorization":`Bearer ${token}`}}); },
     };
 
-    // 엑셀 날짜 형식을 DB에 맞는 YYYY-MM-DD로 변환하는 안전한 함수 추가
-    // 엑셀 날짜 형식을 DB에 맞는 YYYY-MM-DD로 변환
     function formatExcelDate(d){
       if(!d) return null;
       if(d instanceof Date) {
@@ -63,7 +61,6 @@
       return null;
     }
 
-    // [핵심 추가] 콤마(,), 퍼센트(%) 등이 포함된 문자를 순수 숫자로 변환
     function parseNum(val) {
       if(typeof val === 'number') return val;
       if(!val) return 0;
@@ -80,7 +77,6 @@
         const assets=underlyings.filter(u=>String(u.product_code)===code);
         const assetNames=assets.map(a=>String(a.asset_name));
         
-        // 기준가 파싱 (parseNum 사용)
         const initialPrices={}; 
         assets.forEach(a=>{ initialPrices[String(a.asset_name)] = parseNum(a.initial_price); });
         
@@ -88,7 +84,6 @@
         const earlyRows=sched.filter(s=>String(s.period)!=="만기");
         const evaluationDates=earlyRows.map(s=>[formatExcelDate(s.eval_date)||" ",formatExcelDate(s.payment_date)||" "]);
         
-        // 배리어 파싱 (Schedules 시트에서 직접 추출하여 정확도 향상)
         let earlyBarriers = earlyRows.map(s => parseNum(s.barrier_pct)).filter(n => n > 0);
         if(earlyBarriers.length === 0) {
           earlyBarriers = (String(p.barriers||"")).split(/[-,]/).map(parseNum).filter(n=>n>0);
@@ -111,7 +106,7 @@
         };
       });
     }
-// 티커(기호) 매핑 - 엑셀의 기초자산 이름과 일치해야 합니다.
+
     const TICKER_MAP = {
       "마이크론":"MU", "마이크론 테크놀로지":"MU", 
       "팔란티어":"PLTR", "팔란티어 테크":"PLTR", 
@@ -120,39 +115,20 @@
       "엔비디아":"NVDA", "NVIDIA":"NVDA",
       "브로드컴":"AVGO", "애플":"AAPL", "AMD":"AMD",
       "S&P500":"^GSPC", "S&P 500":"^GSPC", "NASDAQ100":"^NDX", 
-      "유로스톡스50":"^STOXX50E", "KOSPI200":"^KS200", "HSCEI":"^HSCE"
-    };
-
-      // 2. 주가지수 (띄어쓰기 및 한글/영문 변형 모두 포함)
-      "S&P500":"^GSPC", "S&P 500":"^GSPC", 
-      "NASDAQ100":"^NDX", "나스닥100":"^NDX", "나스닥 100":"^NDX",
-      "유로스톡스50":"^STOXX50E", "EURO STOXX 50":"^STOXX50E", "EUROSTOXX50":"^STOXX50E",
-      "KOSPI200":"^KS200", "코스피200":"^KS200", "코스피 200":"^KS200",
-      "HSCEI":"^HSCE", "홍콩H지수":"^HSCE", "홍콩 H지수":"^HSCE",
+      "유로스톡스50":"^STOXX50E", "KOSPI200":"^KS200", "HSCEI":"^HSCE",
       "니케이225":"^N225", "닛케이225":"^N225", "NIKKEI225":"^N225", "NIKKEI 225":"^N225"
     };
-    
     const TODAY=new Date("2026-04-17");
     function fmt(s){if(!s||s.trim()==="")return"";const d=new Date(s);if(isNaN(d))return s;return`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;}
     function daysUntil(s){if(!s||s.trim()==="")return 9999;return Math.ceil((new Date(s)-TODAY)/86400000);}
     function getNextEval(p){for(const[e]of(p.evaluationDates||[])){const d=daysUntil(e);if(d>=0&&d!==9999)return{date:e,days:d};}return null;}
 
-    // 괄호 안에 init과 cur를 추가로 받도록 선언합니다.
     function RatioBar({ratio, init, cur, barrier, knockIn}){
-      
-      // 상황 1. DB에 저장된 기준가(init) 자체가 0이거나 없는 경우 (빨간색 경고)
-      if(!init || init <= 0) {
-        return <div style={{fontSize:12,color:"#A32D2D",padding:"8px 0",fontWeight:500}}>⚠️ 기준가 미입력 (DB 확인 필요)</div>;
-      }
-      
-      // 상황 2. 기준가는 있는데, 시세 새로고침을 안 해서 현재가(cur)가 없는 경우 (회색 안내)
-      if(cur === null || cur === undefined) {
-        return <div style={{fontSize:12,color:"#aaa",padding:"8px 0"}}>현재가 미입력 (상단 시세 새로고침 클릭)</div>;
-      }
+      if(!init || init <= 0) return <div style={{fontSize:12,color:"#A32D2D",padding:"8px 0",fontWeight:500}}>⚠️ 기준가 미입력 (DB 확인 필요)</div>;
+      if(cur === null || cur === undefined) return <div style={{fontSize:12,color:"#aaa",padding:"8px 0"}}>현재가 미입력 (상단 시세 새로고침 클릭)</div>;
 
-      // 둘 다 정상이면 아래 공식을 통해 정상적으로 그래프를 그립니다.
-      const MIN=0,MAX=150,pct=v=>Math.max(0,Math.min(100,(v-MIN)/(MAX-MIN)*100));
-      const kiPct=pct(knockIn),barPct=pct(barrier),curPct=pct(ratio);
+      const MIN=0, MAX=150, pct=v=>Math.max(0,Math.min(100,(v-MIN)/(MAX-MIN)*100));
+      const kiPct=pct(knockIn), barPct=pct(barrier), curPct=pct(ratio);
       const curColor=ratio<knockIn?"#A32D2D":ratio<barrier?"#BA7517":"#0F6E56";
       const labels=[{id:"ki",pct:kiPct},{id:"bar",pct:barPct},{id:"cur",pct:curPct}].sort((a,b)=>a.pct-b.pct);
       for(let i=1;i<labels.length;i++)if(labels[i].pct-labels[i-1].pct<8)labels[i].pct=labels[i-1].pct+8;
@@ -189,7 +165,7 @@
       const [accounts,setAccounts]=useState([]); const [activeTab,setActiveTab]=useState(0); const [accsLoading,setAccsLoading]=useState(false); const [saving,setSaving]=useState(false);
       const [editMode,setEditMode]=useState(false);
       const [addModal,setAddModal]=useState(null); const [checkedAdd,setCheckedAdd]=useState({}); const [selectedDelete,setSelectedDelete]=useState({});
-      const [textInput,setTextInput]=useState(""); const [textMatched,setTextMatched]=useState(null); const [imgLoading,setImgLoading]=useState(false);
+      const [textInput,setTextInput]=useState(""); const [textMatched,setTextMatched]=useState(null);
       const [detailProduct,setDetailProduct]=useState(null);
       const [mainTab,setMainTab]=useState("list");
       const [dashView,setDashView]=useState("account");
@@ -235,54 +211,37 @@
       async function handleLogin(){
         setAuthLoading(true);setAuthErr("");
         try{
-          const data=await sb.signIn(email,pw);
-          if(data.access_token){setSession(data);setScreen("main");loadDb(data.access_token);loadAccounts(data.access_token);}
-          else setAuthErr(data.error_description||data.message||"로그인 실패. 이메일/비밀번호를 확인하세요.");
-        }catch(e){setAuthErr("네트워크 오류: "+e.message);}
-        setAuthLoading(false);
-      }
-      // [추가할 코드] 비밀번호 재설정 메일 발송 함수
-      async function handleResetPassword() {
-        // 1. 아이디 입력 확인
-        if (!email) {
-          setAuthErr("가입하신 아이디(또는 이메일)를 먼저 입력해주세요.");
-          return;
-        }
-        
-        setAuthLoading(true); setAuthErr("");
-        try {
-          // 2. 아이디에 '@'가 없으면 우리가 만든 가상 도메인을 붙여줌
           const formattedEmail = email.includes('@') ? email : `${email}@els.local`;
-          
-          // 3. Supabase의 메일 발송 API(/auth/v1/recover) 호출
-          const r = await fetch(`${SB_URL}/auth/v1/recover`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "apikey": SB_KEY },
-            body: JSON.stringify({ email: formattedEmail })
-          });
-
-          // 4. 결과 처리
-          if (r.ok) {
-            setAuthErr("✓ 비밀번호 재설정 메일이 발송되었습니다. 메일함을 확인하세요.");
-          } else {
-            const err = await r.json();
-            setAuthErr(err.error_description || err.message || "메일 발송 실패 (존재하지 않는 계정일 수 있습니다.)");
-          }
-        } catch (e) {
-          setAuthErr("네트워크 오류: " + e.message);
-        }
+          const data=await sb.signIn(formattedEmail,pw);
+          if(data.access_token){setSession(data);setScreen("main");loadDb(data.access_token);loadAccounts(data.access_token);}
+          else setAuthErr(data.error_description||data.message||"로그인 실패. 아이디/비밀번호를 확인하세요.");
+        }catch(e){setAuthErr("네트워크 오류: "+e.message);}
         setAuthLoading(false);
       }
       
       async function handleSignUp(){
         setAuthLoading(true);setAuthErr("");
         try{
-          const data=await sb.signUp(email,pw);
-          if(data.user&&!data.error)setAuthErr("✓ 가입 완료! 이메일 확인 후 로그인하세요.");
+          const formattedEmail = email.includes('@') ? email : `${email}@els.local`;
+          const data=await sb.signUp(formattedEmail,pw);
+          if(data.user&&!data.error)setAuthErr("✓ 가입 완료! 이제 로그인해주세요.");
           else setAuthErr(data.error_description||data.message||"가입 실패");
         }catch(e){setAuthErr("네트워크 오류: "+e.message);}
         setAuthLoading(false);
       }
+
+      async function handleResetPassword() {
+        if (!email) { setAuthErr("아이디(또는 이메일)를 먼저 입력해주세요."); return; }
+        setAuthLoading(true); setAuthErr("");
+        try {
+          const formattedEmail = email.includes('@') ? email : `${email}@els.local`;
+          const r = await fetch(`${SB_URL}/auth/v1/recover`, { method: "POST", headers: { "Content-Type": "application/json", "apikey": SB_KEY }, body: JSON.stringify({ email: formattedEmail }) });
+          if (r.ok) setAuthErr("✓ 비밀번호 재설정 메일이 발송되었습니다.");
+          else { const err = await r.json(); setAuthErr(err.error_description || err.message || "메일 발송 실패"); }
+        } catch (e) { setAuthErr("네트워크 오류: " + e.message); }
+        setAuthLoading(false);
+      }
+
       async function handleLogout(){if(session)await sb.signOut(session.access_token);setSession(null);setScreen("login");setDb([]);setAccounts([]);setEditMode(false);}
 
       async function saveAccountProducts(accId,products){
@@ -332,7 +291,6 @@
           const token=session.access_token;
           const h={...sbH(token),"Prefer":"return=minimal"};
           
-          // 에러를 확실히 잡아내는 fetch 래퍼 함수
           async function dbFetch(url, method, body) {
             const res = await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined });
             if (!res.ok) {
@@ -343,20 +301,16 @@
             }
           }
 
-          // 기존 데이터 삭제
           await dbFetch(`${SB_URL}/rest/v1/schedules?id=gt.0`, "DELETE");
           await dbFetch(`${SB_URL}/rest/v1/underlyings?id=gt.0`, "DELETE");
           await dbFetch(`${SB_URL}/rest/v1/products?id=neq.NONE`, "DELETE");
           
-          // 상품 저장
           const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knockIn,issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard}));
           await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
           
-         // 기초자산 저장
           const underRows=parsed.flatMap(p=>p._underlyings.map(u=>({product_id:p.id,asset_name:String(u.asset_name),initial_price:parseNum(u.initial_price)})));
           if(underRows.length>0) await dbFetch(`${SB_URL}/rest/v1/underlyings`, "POST", underRows);
           
-          // 스케줄 저장
           const rawS=XLSX.utils.sheet_to_json(wb.Sheets["Schedules"],{defval:""});
           const schedRows=rawS.map((s,i)=>({product_id:String(s.product_code),period:String(s.period),eval_date:formatExcelDate(s.eval_date),payment_date:formatExcelDate(s.payment_date),barrier_pct:parseNum(s.barrier_pct)||null,yield_pct:parseNum(s.yield_pct)||null,sort_order:i}));
           if(schedRows.length>0) await dbFetch(`${SB_URL}/rest/v1/schedules`, "POST", schedRows);
@@ -389,42 +343,33 @@
       function getInitPrice(pid,asset){const o=initPrices[pid]?.[asset];if(o!==undefined&&o!==0)return o;return db.find(p=>String(p.id)===String(pid))?.initialPrices[asset]??0;}
       function setInitPrice(pid,asset,val){setInitPrices(prev=>({...prev,[pid]:{...(prev[pid]||{}),[asset]:val}}));}
 
-     // 야후 파이낸스 API를 이용한 안전한 현재가 조회 함수
-    async function fetchPrices(){
-      setPricesLoading(true);
-      const results={};
-      
-      await Promise.all(allAssets.map(async asset=>{
-        const ticker = TICKER_MAP[asset];
-        if(!ticker) return; // TICKER_MAP에 없는 자산은 조회하지 않음
-        
-        try {
-          // 브라우저 보안(CORS)을 우회하기 위해 allorigins 무료 프록시 사용
-          const targetUrl = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`);
-          const res = await fetch(`https://api.allorigins.win/get?url=${targetUrl}`);
-          
-          if (!res.ok) throw new Error('네트워크 응답 에러');
-          
-          const data = await res.json();
-          const yahooData = JSON.parse(data.contents);
-          
-          // 야후 파이낸스 JSON 구조에서 현재가 추출
-          if(yahooData.chart && yahooData.chart.result && yahooData.chart.result.length > 0) {
-             const price = yahooData.chart.result[0].meta.regularMarketPrice;
-             if(price !== undefined && price !== null) {
-               results[asset] = price;
-             }
+      async function fetchPrices(){
+        setPricesLoading(true);
+        const results={};
+        await Promise.all(allAssets.map(async asset=>{
+          const ticker = TICKER_MAP[asset];
+          if(!ticker) return; 
+          try {
+            const targetUrl = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`);
+            const res = await fetch(`https://api.allorigins.win/get?url=${targetUrl}`);
+            if (!res.ok) throw new Error('네트워크 에러');
+            const data = await res.json();
+            const yahooData = JSON.parse(data.contents);
+            if(yahooData.chart && yahooData.chart.result && yahooData.chart.result.length > 0) {
+               const price = yahooData.chart.result[0].meta.regularMarketPrice;
+               if(price !== undefined && price !== null) {
+                 results[asset] = price;
+               }
+            }
+          } catch(e) {
+            console.error(`[${asset}] 조회 실패:`, e);
           }
-        } catch(e) {
-          console.error(`[${asset}] 현재가 조회 실패:`, e);
-        }
-      }));
-      
-      setPrices(prev=>({...prev,...results}));
-      setLastUpdated(new Date().toLocaleTimeString("ko-KR"));
-      setPricesLoading(false);
-    }
-      
+        }));
+        setPrices(prev=>({...prev,...results}));
+        setLastUpdated(new Date().toLocaleTimeString("ko-KR"));
+        setPricesLoading(false);
+      }
+
       function calcStatus(p){
         const next=getNextEval(p);
         const idx=next?p.evaluationDates.findIndex(([e])=>e===next.date):p.evaluationDates.length-1;
@@ -453,7 +398,7 @@
                 <button key={key} onClick={()=>{setAuthTab(key);setAuthErr("");}} style={{flex:1,padding:"8px",border:"none",background:authTab===key?"#185FA5":"transparent",color:authTab===key?"#fff":"#666",cursor:"pointer",fontSize:14}}>{label}</button>
               ))}
             </div>
-            <div style={{marginBottom:12}}><label style={C.label}>이메일</label><input style={C.input} type="email" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(authTab==="login"?handleLogin():handleSignUp())} placeholder="이메일 주소"/></div>
+            <div style={{marginBottom:12}}><label style={C.label}>아이디</label><input style={C.input} type="text" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(authTab==="login"?handleLogin():handleSignUp())} placeholder="아이디 입력 (예: admin)"/></div>
             <div style={{marginBottom:16}}>
               <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4}}>
                 <label style={{...C.label, marginBottom:0}}>비밀번호</label>
@@ -461,18 +406,12 @@
               </div>
               <input style={C.input} type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(authTab==="login"?handleLogin():handleSignUp())} placeholder={authTab === "login" ? "비밀번호" : "비밀번호 (6자리 이상 입력)"}/>
             </div>
-            {/* 비밀번호 찾기 버튼 (로그인 탭에서만 보임) */}
             {authTab === "login" && (
               <div style={{textAlign: "right", marginTop: -8, marginBottom: 16}}>
-                <button 
-                  onClick={handleResetPassword} 
-                  disabled={authLoading} 
-                  style={{background:"none", border:"none", color:"#666", fontSize:12, cursor:"pointer", textDecoration:"underline"}}>
-                  비밀번호를 잊으셨나요?
-                </button>
+                <button onClick={handleResetPassword} disabled={authLoading} style={{background:"none", border:"none", color:"#666", fontSize:12, cursor:"pointer", textDecoration:"underline"}}>비밀번호를 잊으셨나요?</button>
               </div>
             )}
-            {authErr&&<p style={{color:authErr.includes("완료")?"#0F6E56":"#A32D2D",fontSize:13,marginBottom:10}}>{authErr}</p>}
+            {authErr&&<p style={{color:authErr.includes("완료")||authErr.includes("발송")?"#0F6E56":"#A32D2D",fontSize:13,marginBottom:10}}>{authErr}</p>}
             <button style={{...C.btnP,width:"100%",padding:10}} onClick={authTab==="login"?handleLogin:handleSignUp} disabled={authLoading}>{authLoading?"처리 중...":(authTab==="login"?"로그인":"회원가입")}</button>
           </div>
         </div>
