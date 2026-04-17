@@ -310,7 +310,7 @@
         totalAssets.forEach(asset => { if(TICKER_MAP[asset.trim()]) uniqueTickers.add(TICKER_MAP[asset.trim()]); });
 
         if (uniqueTickers.size > 0) {
-          const GAS_URL = "https://script.google.com/macros/s/AKfycbz8AZrPUFy55gwPvM8COb4GExsVtCgmdtXpmCn31BengXymAPz2lNvp0TZMcUtNvG0z/exec";
+          const GAS_URL = "https://script.google.com/macros/s/AKfycbwh9Lh5RP3VCMfQIu_zouK0_QgGtngRbE6VUXzL002xdhdRrc1YEg861uyfGB5ctNH1/exec";
           try {
             const res = await fetch(`${GAS_URL}?symbols=${Array.from(uniqueTickers).join(',')}`);
             if (res.ok) {
