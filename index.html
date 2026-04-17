@@ -18,7 +18,7 @@
     ::-webkit-scrollbar-track{background:#f1f1f1;}
     ::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px;}
     .data-table th, .data-table td { padding: 10px 12px; border-bottom: 1px solid #eee; text-align: left; }
-    .data-table th { background: #f9f9f9; font-weight: 500; color: #555; }
+    .data-table th { background: #f9f9f9; font-weight: 500; color: #555; white-space: nowrap; }
     .data-table tr:hover { background: #fafafa; }
     .data-table tr:last-child td { border-bottom: none; }
   </style>
@@ -301,7 +301,6 @@
       const upcomingEvals=myProducts.map(p=>{const n=getNextEval(p);return n&&n.days<=14?{product:p,...n}:null;}).filter(Boolean).sort((a,b)=>a.days-b.days);
       const allProductIds=[...new Set(accounts.flatMap(a=>Object.keys(a.products||{}).map(String)))];
       
-      // 대시보드에 표시할 상품 목록 (현재 계좌 vs 전체 계좌)
       const rawDashProducts=dashView==="account"?myProducts:db.filter(p=>allProductIds.includes(String(p.id)));
 
       function setAmt(pid,val){setAccounts(prev=>prev.map((a,i)=>i===activeTab?{...a,products:{...a.products,[pid]:Math.max(0,val)}}:a));}
@@ -320,8 +319,8 @@
         totalAssets.forEach(asset => { if(TICKER_MAP[asset.trim()]) uniqueTickers.add(TICKER_MAP[asset.trim()]); });
 
         if (uniqueTickers.size > 0) {
-          // ★ 여기에 본인의 구글 스크립트 주소를 입력하세요 ★
-          const GAS_URL = "https://script.google.com/macros/s/AKfycbz8AZrPUFy55gwPvM8COb4GExsVtCgmdtXpmCn31BengXymAPz2lNvp0TZMcUtNvG0z/exec";
+          // ★ [중요] 여기에 본인의 구글 스크립트 웹 앱 주소를 꼭 입력하세요 ★
+          const GAS_URL = "https://script.google.com/macros/s/AKfycbwh9Lh5RP3VCMfQIu_zouK0_QgGtngRbE6VUXzL002xdhdRrc1YEg861uyfGB5ctNH1/exec";
           try {
             const res = await fetch(`${GAS_URL}?symbols=${Array.from(uniqueTickers).join(',')}`);
             if (res.ok) {
@@ -359,14 +358,11 @@
         return{assetStatuses, isKnockedIn, canRedeem, barrier, next, sText, sBg, sColor};
       }
 
-      // [기능 추가] 대시보드 상품들을 정렬 및 필터링하기 위한 사전 계산
       const processedDashProducts = rawDashProducts.map(p => ({ p, st: calcStatus(p) }));
-      
       let filteredDashProducts = processedDashProducts;
       if (filterStatus !== "all") {
         filteredDashProducts = filteredDashProducts.filter(item => item.st.sText === filterStatus);
       }
-      
       filteredDashProducts.sort((a, b) => {
         if (sortBy === "name") return a.p.name.localeCompare(b.p.name);
         if (sortBy === "date") {
@@ -389,8 +385,10 @@
         card:{background:"#fff",border:"0.5px solid #e5e5e5",borderRadius:12,padding:"16px 20px",marginBottom:12},
         btn:{background:"#fff",border:"0.5px solid #ccc",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:14,color:"#111"},
         btnP:{background:"#185FA5",border:"none",borderRadius:8,padding:"8px 18px",cursor:"pointer",fontSize:14,color:"#fff",fontWeight:500},
+        btnD:{background:"#A32D2D",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:14,color:"#fff"},
         input:{border:"1px solid #ddd",borderRadius:8,padding:"8px 12px",fontSize:15,width:"100%",background:"#fff",color:"#111"},
         metricCard:{background:"#f5f7fa",borderRadius:8,padding:"12px 16px",flex:1,minWidth:0},
+        label:{fontSize:13,color:"#666",marginBottom:4,display:"block"}
       };
 
       if(screen==="login") return (
@@ -401,6 +399,41 @@
             <div style={{marginBottom:16}}><input style={C.input} type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="비밀번호"/></div>
             {authErr&&<p style={{color:"#A32D2D",fontSize:13,marginBottom:10}}>{authErr}</p>}
             <button style={{...C.btnP,width:"100%"}} onClick={handleLogin}>로그인</button>
+          </div>
+        </div>
+      );
+
+      // [복구됨] 관리자 화면
+      if(screen==="admin") return (
+        <div style={C.wrap}>
+          <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{fontSize:17,fontWeight:500}}>관리자 기능</span>
+            <button style={C.btn} onClick={()=>setScreen("main")}>메인으로</button>
+          </div>
+          <div style={{padding:16,maxWidth:800,margin:"0 auto"}}>
+            <div style={{...C.card,marginBottom:16,border:"1px solid #185FA5"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                <span style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>야후 파이낸스 시세 업데이트 (DB 캐싱)</span>
+              </div>
+              <p style={{fontSize:13,color:"#666",marginBottom:12}}>구글 서버를 호출해 시세를 DB에 수동으로 덮어씁니다.</p>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <button style={{...C.btnP, opacity:pricesLoading?0.6:1}} onClick={updatePricesFromYahoo} disabled={pricesLoading}>
+                  {pricesLoading?"데이터 수집 및 저장 중...":"최신 시세 수집 및 DB 덮어쓰기"}
+                </button>
+              </div>
+            </div>
+            <div style={{...C.card,marginBottom:16}}>
+              <div style={{fontSize:15,fontWeight:500,marginBottom:4}}>엑셀 파일로 ELS 상품 DB 업데이트</div>
+              <p style={{fontSize:13,color:"#666",marginBottom:12}}>Products / Underlyings / Schedules 3개 시트가 포함된 xlsx 업로드</p>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <label style={{...C.btnP,background:"#555",display:"inline-flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+                  📂 엑셀 업로드
+                  <input type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleXlsxUpload}/>
+                </label>
+                {xlsxLoading&&<span style={{fontSize:13,color:"#888"}}>저장 중...</span>}
+              </div>
+              {xlsxStatus&&<div style={{marginTop:12,padding:"10px 14px",borderRadius:8,background:xlsxStatus.ok?"#E1F5EE":"#FCEBEB",color:xlsxStatus.ok?"#0F6E56":"#A32D2D",fontSize:13,fontWeight:500}}>{xlsxStatus.msg}</div>}
+            </div>
           </div>
         </div>
       );
@@ -431,59 +464,86 @@
 
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",display:"flex",padding:"0 16px"}}>
             {[["list","상품 목록"],["dashboard","평가 현황판"]].map(([key,label])=>(
-              <button key={key} onClick={()=>setMainTab(key)} style={{padding:"10px 16px",fontSize:14,border:"none",borderBottom:mainTab===key?"2px solid #185FA5":"2px solid transparent",background:"transparent",color:mainTab===key?"#185FA5":"#888",cursor:"pointer"}}>{label}</button>
+              <button key={key} onClick={()=>setMainTab(key)} style={{padding:"10px 16px",fontSize:14,border:"none",borderBottom:mainTab===key?"2px solid #185FA5":"2px solid transparent",background:"transparent",color:mainTab===key?"#185FA5":"#888",cursor:"pointer",fontWeight:mainTab===key?500:400}}>{label}</button>
             ))}
           </div>
 
           <div style={{padding:16,maxWidth:800,margin:"0 auto"}}>
+            {/* --- 상품 목록 화면 --- */}
             {mainTab==="list"&&(<>
-              {!editMode && (<div style={{display:"flex",gap:10,marginBottom:12}}>{[["총 가입금액",`${totalAmt.toLocaleString()}만`],["평균 수익률",`${weightedRate.toFixed(1)}%`]].map(([l,v])=>(<div key={l} style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>{l}</div><div style={{fontSize:20,fontWeight:500}}>{v}</div></div>))}</div>)}
-              {myProducts.map(p=>{
-                const st=calcStatus(p);
-                return(<div key={p.id} style={{...C.card,cursor:"pointer"}} onClick={()=>setDetailProduct(p)}>
-                  <div style={{display:"flex",justifyContent:"space-between"}}>
-                    <div>
-                      <span style={{fontSize:15,fontWeight:500}}>{p.name}</span>
-                      <span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:11,fontWeight:500,background:st.sBg,color:st.sColor,marginLeft:6}}>{st.sText}</span>
+              {!editMode && (<>
+                <div style={{display:"flex",gap:10,marginBottom:12}}>{[["총 가입금액",`${totalAmt.toLocaleString()}만`],["평균 수익률",`${weightedRate.toFixed(1)}%`]].map(([l,v])=>(<div key={l} style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>{l}</div><div style={{fontSize:20,fontWeight:500}}>{v}</div></div>))}</div>
+                {myProducts.length===0 && <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>가입 상품이 없습니다.<br/>수정 버튼을 눌러 상품을 추가하세요.</div>}
+                {myProducts.map(p=>{
+                  const st=calcStatus(p);
+                  return(<div key={p.id} style={{...C.card,cursor:"pointer"}} onClick={()=>setDetailProduct(p)}>
+                    <div style={{display:"flex",justifyContent:"space-between"}}>
+                      <div>
+                        <span style={{fontSize:15,fontWeight:500}}>{p.name}</span>
+                        <span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:11,fontWeight:500,background:st.sBg,color:st.sColor,marginLeft:6}}>{st.sText}</span>
+                      </div>
+                      <span style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>{(acc.products[p.id]||0).toLocaleString()}만원</span>
                     </div>
-                    <span style={{fontSize:15,fontWeight:500}}>{(acc.products[p.id]||0).toLocaleString()}만원</span>
+                    <div style={{fontSize:12,color:"#888",marginTop:6}}>{p.assets.join("/")} | 연 {p.annualRate}% | KI {p.knockIn}%</div>
+                  </div>);
+                })}
+                <button style={{...C.btnP,width:"100%",marginTop:10}} onClick={()=>setEditMode(true)}>수정</button>
+              </>)}
+              
+              {/* [복구됨] 상품 목록 - 수정 모드 (금액 입력기) */}
+              {editMode && (<>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <span style={{fontSize:15,fontWeight:500}}>수정 모드</span>
+                  <div style={{display:"flex",gap:8}}>
+                    {Object.values(selectedDelete).some(Boolean)&&<button style={C.btnD} onClick={deleteSelected}>선택 삭제</button>}
+                    <button style={C.btn} onClick={()=>{setEditMode(false);setSelectedDelete({});}}>취소</button>
                   </div>
-                  <div style={{fontSize:12,color:"#888",marginTop:6}}>{p.assets.join("/")} | 연 {p.annualRate}% | KI {p.knockIn}%</div>
-                </div>);
-              })}
-              {!editMode && <button style={{...C.btnP,width:"100%",marginTop:10}} onClick={()=>setEditMode(true)}>수정</button>}
-              {editMode && <button style={{...C.btnP,width:"100%",marginTop:10}} onClick={async()=>{await saveAccountProducts(acc.id,acc.products);setEditMode(false);}}>저장 완료</button>}
+                </div>
+                {myProducts.map(p=>(
+                  <div key={p.id} style={C.card}>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                      <input type="checkbox" checked={!!selectedDelete[p.id]} onChange={e=>setSelectedDelete(prev=>({...prev,[p.id]:e.target.checked}))} style={{width:16,height:16}}/>
+                      <span style={{fontSize:14,fontWeight:500,flex:1}}>{p.name}</span>
+                      <span style={{fontSize:13,color:"#888"}}>연 {p.annualRate}%</span>
+                    </div>
+                    <div style={{display:"flex",alignItems:"stretch",border:"1px solid #888",borderRadius:10,overflow:"hidden"}}>
+                      <input type="number" value={acc.products[p.id]||0} onFocus={e=>{if(e.target.value==="0")e.target.value="";}} onBlur={e=>{if(e.target.value==="")setAmt(p.id,0);}} onChange={e=>setAmt(p.id,parseInt(e.target.value)||0)} style={{width:90,padding:"9px 10px",fontSize:14,border:"none",borderRight:"1px solid #888",outline:"none"}}/>
+                      <span style={{display:"flex",alignItems:"center",padding:"0 8px",fontSize:13,color:"#888",borderRight:"1px solid #888",background:"#f5f5f5"}}>만원</span>
+                      {[["+100만",100],["+10만",10],["+1만",1]].map(([label,val])=>(
+                        <button key={label} onClick={()=>addAmtFn(p.id,val)} style={{flex:1,padding:"9px 6px",fontSize:13,border:"none",borderRight:"1px solid #888",background:"#fff",cursor:"pointer"}}>{label}</button>
+                      ))}
+                      <button onClick={()=>setAmt(p.id,0)} style={{padding:"9px 10px",fontSize:13,border:"none",background:"#fff",color:"#A32D2D",cursor:"pointer"}}>초기화</button>
+                    </div>
+                  </div>
+                ))}
+                <button style={{...C.btn,width:"100%",marginBottom:8}} onClick={()=>openAddModal("list")}>+ 상품 추가</button>
+                <button style={{...C.btnP,width:"100%",opacity:saving?0.6:1}} onClick={async()=>{await saveAccountProducts(acc.id,acc.products);setEditMode(false);}}>
+                  {saving?"저장 중...":"저장 완료"}
+                </button>
+              </>)}
             </>)}
 
+            {/* --- 대시보드 화면 --- */}
             {mainTab==="dashboard"&&(<>
-              
-              {/* [신규 패널] 화면 최상단 컨트롤 박스 */}
               <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16,background:"#fff",padding:"12px 16px",borderRadius:8,border:"0.5px solid #e5e5e5"}}>
-                
-                {/* 1열: 보기 토글 버튼들과 데이터 불러오기 */}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                   <div style={{display:"flex",gap:12}}>
-                    {/* 계좌별 / 전체계좌 토글 */}
                     <div style={{display:"flex",border:"1px solid #ddd",borderRadius:6,overflow:"hidden"}}>
                       {[["account","현재 계좌"],["all","전체 계좌"]].map(([key,label])=>(
                         <button key={key} onClick={()=>setDashView(key)} style={{padding:"6px 12px",fontSize:13,border:"none",background:dashView===key?"#185FA5":"#fff",color:dashView===key?"#fff":"#555",cursor:"pointer"}}>{label}</button>
                       ))}
                     </div>
-                    {/* 시각화 / 표 토글 */}
                     <div style={{display:"flex",border:"1px solid #ddd",borderRadius:6,overflow:"hidden"}}>
                       {[["visual","시각화"],["table","표"]].map(([key,label])=>(
                         <button key={key} onClick={()=>setDisplayMode(key)} style={{padding:"6px 12px",fontSize:13,border:"none",background:displayMode===key?"#185FA5":"#fff",color:displayMode===key?"#fff":"#555",cursor:"pointer"}}>{label}</button>
                       ))}
                     </div>
                   </div>
-                  
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
                     {lastUpdated&&<span style={{fontSize:12,color:"#888"}}>{lastUpdated}</span>}
                     <button style={{...C.btn,padding:"6px 12px",fontSize:12,border:"1px solid #185FA5",color:"#185FA5"}} onClick={()=>loadPricesFromDB(session.access_token)} disabled={pricesLoading}>{pricesLoading?"조회 중...":"DB 시세 불러오기"}</button>
                   </div>
                 </div>
-
-                {/* 2열: 정렬 및 필터 드롭다운 */}
                 <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
                   <div style={{display:"flex",alignItems:"center",gap:6}}>
                     <span style={{fontSize:13,color:"#555"}}>필터:</span>
@@ -507,11 +567,8 @@
                 </div>
               </div>
 
-              {filteredDashProducts.length === 0 && (
-                <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>해당 조건에 맞는 상품이 없습니다.</div>
-              )}
+              {filteredDashProducts.length === 0 && <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>해당 조건에 맞는 상품이 없습니다.</div>}
 
-              {/* [뷰어 1] 시각화 모드 (기존 카드 뷰) */}
               {displayMode === "visual" && filteredDashProducts.map(({p, st}) => (
                 <div key={p.id} style={C.card}>
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
@@ -531,7 +588,6 @@
                 </div>
               ))}
 
-              {/* [뷰어 2] 표 모드 (간략한 한눈에 보기) */}
               {displayMode === "table" && filteredDashProducts.length > 0 && (
                 <div style={{background:"#fff", border:"0.5px solid #e5e5e5", borderRadius:8, overflowX:"auto", marginBottom:12}}>
                   <table className="data-table" style={{width:"100%", borderCollapse:"collapse", fontSize:13}}>
@@ -566,6 +622,55 @@
               )}
             </>)}
           </div>
+
+          {/* [복구됨] 상품 추가 모달 */}
+          {addModal&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",zIndex:100}}>
+              <div style={{background:"#fff",width:"100%",maxHeight:"85vh",overflowY:"auto",borderRadius:"16px 16px 0 0",padding:20}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                  <span style={{fontSize:16,fontWeight:500}}>상품 추가</span>
+                  <button style={C.btn} onClick={()=>setAddModal(null)}>닫기</button>
+                </div>
+                <div style={{display:"flex",gap:8,marginBottom:16}}>
+                  <button style={{...C.btn,background:addModal==="list"?"#B5D4F4":undefined}} onClick={()=>openAddModal("list")}>전체 목록</button>
+                  <button style={{...C.btn,background:addModal==="text"?"#B5D4F4":undefined}} onClick={()=>openAddModal("text")}>텍스트 검색</button>
+                </div>
+                {addModal==="text"&&(<div style={{marginBottom:12}}><textarea style={{...C.input,height:80,resize:"vertical"}} placeholder="상품명 또는 회차 번호 입력" value={textInput} onChange={e=>setTextInput(e.target.value)}/><button style={{...C.btnP,marginTop:8}} onClick={handleTextMatch}>검색</button></div>)}
+                {(addModal==="list"||((addModal==="text")&&textMatched!==null))&&(()=>{
+                  const list=addModal==="list"?db.filter(p=>!myProductIds.includes(String(p.id))):textMatched;
+                  const allChecked=list.length>0&&list.every(p=>checkedAdd[p.id]);
+                  return(<>
+                    {list.length>0&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}><button style={{...C.btn,fontSize:12,padding:"4px 10px"}} onClick={()=>{const next={};list.forEach(p=>next[p.id]=!allChecked);setCheckedAdd(prev=>({...prev,...next}));}}>{allChecked?"전체 해제":"전체 선택"}</button></div>}
+                    {list.map(p=>(<div key={p.id} onClick={()=>setCheckedAdd(prev=>({...prev,[p.id]:!prev[p.id]}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"0.5px solid #eee",cursor:"pointer"}}><input type="checkbox" checked={!!checkedAdd[p.id]} onChange={()=>{}} style={{width:16,height:16,pointerEvents:"none"}}/><div style={{flex:1}}><div style={{fontSize:14,fontWeight:500}}>{p.name}</div><div style={{fontSize:12,color:"#666"}}>{p.assets.join(" / ")} | 연 {p.annualRate}% | KI {p.knockIn}%</div></div></div>))}
+                    {list.length===0&&<div style={{textAlign:"center",color:"#aaa",padding:20}}>추가할 수 있는 상품이 없습니다.</div>}
+                    <button style={{...C.btnP,width:"100%",marginTop:16}} onClick={confirmAdd}>확인</button>
+                  </>);
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* [복구됨] 상품 상세 정보 모달 */}
+          {detailProduct&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",zIndex:100}}>
+              <div style={{background:"#fff",width:"100%",maxHeight:"85vh",overflowY:"auto",borderRadius:"16px 16px 0 0",padding:20}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                  <span style={{fontSize:16,fontWeight:500}}>{detailProduct.name}</span>
+                  <button style={C.btn} onClick={()=>setDetailProduct(null)}>닫기</button>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+                  {[["기초자산",detailProduct.assets.join(", ")],["연 수익률",detailProduct.annualRate+"%"],["낙인배리어",detailProduct.knockIn+"%"],["만기",detailProduct.maturityMonths+"개월"],["발행일",fmt(detailProduct.issue_date)],["만기일",fmt(detailProduct.maturity_date)]].map(([k,v])=>(
+                    <div key={k} style={{background:"#f5f7fa",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:12,color:"#666"}}>{k}</div><div style={{fontSize:14,fontWeight:500,marginTop:2}}>{v}</div></div>
+                  ))}
+                </div>
+                <div style={{fontSize:13,fontWeight:500,marginBottom:8}}>차수별 조기상환 배리어</div>
+                {detailProduct.evaluationDates.map(([evalD,payD],idx)=>{
+                  const days=daysUntil(evalD);const barrier=detailProduct.earlyBarriers[idx]??detailProduct.earlyBarriers[detailProduct.earlyBarriers.length-1];const isPast=days<0;
+                  return(<div key={idx} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"0.5px solid #eee",opacity:isPast?0.4:1}}><div><span style={{fontSize:13}}>{idx+1}차 {fmt(evalD)}</span><span style={{fontSize:12,color:"#888",marginLeft:8}}>지급 {fmt(payD)}</span></div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:13,color:"#185FA5"}}>{barrier}%</span>{!isPast&&days<=14&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:"#FAEEDA",color:"#BA7517",fontWeight:500}}>D-{days}</span>}</div></div>);
+                })}
+              </div>
+            </div>
+          )}
         </div>
       );
     }
