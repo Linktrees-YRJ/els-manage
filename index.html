@@ -51,6 +51,7 @@
     };
 
     // 엑셀 날짜 형식을 DB에 맞는 YYYY-MM-DD로 변환하는 안전한 함수 추가
+    // 엑셀 날짜 형식을 DB에 맞는 YYYY-MM-DD로 변환
     function formatExcelDate(d){
       if(!d) return null;
       if(d instanceof Date) {
@@ -62,6 +63,15 @@
       return null;
     }
 
+    // [핵심 추가] 콤마(,), 퍼센트(%) 등이 포함된 문자를 순수 숫자로 변환
+    function parseNum(val) {
+      if(typeof val === 'number') return val;
+      if(!val) return 0;
+      const str = String(val).replace(/[^0-9.-]/g, '');
+      const n = parseFloat(str);
+      return isNaN(n) ? 0 : n;
+    }
+
     function parseElsExcel(wb){
       const toJ=name=>{const s=wb.Sheets[name];return s?XLSX.utils.sheet_to_json(s,{defval:""}):[];};
       const products=toJ("Products"),underlyings=toJ("Underlyings"),schedules=toJ("Schedules");
@@ -69,18 +79,36 @@
         const code=String(p.product_code);
         const assets=underlyings.filter(u=>String(u.product_code)===code);
         const assetNames=assets.map(a=>String(a.asset_name));
-        const initialPrices={}; assets.forEach(a=>{initialPrices[String(a.asset_name)]=Number(a.initial_price)||0;});
-        const earlyBarriers=(String(p.barriers||"")).split(/[-,]/).map(Number).filter(n=>!isNaN(n));
+        
+        // 기준가 파싱 (parseNum 사용)
+        const initialPrices={}; 
+        assets.forEach(a=>{ initialPrices[String(a.asset_name)] = parseNum(a.initial_price); });
+        
         const sched=schedules.filter(s=>String(s.product_code)===code);
         const earlyRows=sched.filter(s=>String(s.period)!=="만기");
         const evaluationDates=earlyRows.map(s=>[formatExcelDate(s.eval_date)||" ",formatExcelDate(s.payment_date)||" "]);
+        
+        // 배리어 파싱 (Schedules 시트에서 직접 추출하여 정확도 향상)
+        let earlyBarriers = earlyRows.map(s => parseNum(s.barrier_pct)).filter(n => n > 0);
+        if(earlyBarriers.length === 0) {
+          earlyBarriers = (String(p.barriers||"")).split(/[-,]/).map(parseNum).filter(n=>n>0);
+        }
+
         let maturityMonths=36;
         const tm=String(p.term||""),my=tm.match(/(\d+)\s*년/),mm=tm.match(/(\d+)\s*개월/);
         if(my)maturityMonths=parseInt(my[1])*12; if(mm)maturityMonths+=(my?parseInt(mm[1]):parseInt(mm[1]));
         let redemptionCycle=6;
         if(tm.includes("4개월"))redemptionCycle=4; else if(tm.includes("3개월"))redemptionCycle=3;
         const isLizard=!!(p.special_note&&String(p.special_note).includes("리자드"));
-        return{id:code,name:String(p.full_name||code),assets:assetNames,annualRate:Number(p.max_annual_yield)||0,maturityMonths,redemptionCycle,earlyBarriers,knockIn:Number(p.ki_level)||30,issueDate:formatExcelDate(p.issue_date),maturityDate:formatExcelDate(p.maturity_date),initialPrices,evaluationDates,isLizard,_underlyings:assets,_schedules:sched};
+        
+        return{
+          id:code, name:String(p.full_name||code), assets:assetNames, 
+          annualRate:parseNum(p.max_annual_yield), 
+          maturityMonths, redemptionCycle, earlyBarriers, 
+          knockIn:parseNum(p.ki_level)||30, 
+          issueDate:formatExcelDate(p.issue_date), maturityDate:formatExcelDate(p.maturity_date), 
+          initialPrices, evaluationDates, isLizard, _underlyings:assets, _schedules:sched
+        };
       });
     }
 // 티커(기호) 매핑 - 엑셀의 기초자산 이름과 일치해야 합니다. (다양한 표기법 추가)
@@ -308,13 +336,13 @@
           const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knockIn,issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard}));
           await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
           
-          // 기초자산 저장
-          const underRows=parsed.flatMap(p=>p._underlyings.map(u=>({product_id:p.id,asset_name:String(u.asset_name),initial_price:Number(u.initial_price)||0})));
+         // 기초자산 저장
+          const underRows=parsed.flatMap(p=>p._underlyings.map(u=>({product_id:p.id,asset_name:String(u.asset_name),initial_price:parseNum(u.initial_price)})));
           if(underRows.length>0) await dbFetch(`${SB_URL}/rest/v1/underlyings`, "POST", underRows);
           
           // 스케줄 저장
           const rawS=XLSX.utils.sheet_to_json(wb.Sheets["Schedules"],{defval:""});
-          const schedRows=rawS.map((s,i)=>({product_id:String(s.product_code),period:String(s.period),eval_date:formatExcelDate(s.eval_date),payment_date:formatExcelDate(s.payment_date),barrier_pct:Number(s.barrier_pct)||null,yield_pct:Number(s.yield_pct)||null,sort_order:i}));
+          const schedRows=rawS.map((s,i)=>({product_id:String(s.product_code),period:String(s.period),eval_date:formatExcelDate(s.eval_date),payment_date:formatExcelDate(s.payment_date),barrier_pct:parseNum(s.barrier_pct)||null,yield_pct:parseNum(s.yield_pct)||null,sort_order:i}));
           if(schedRows.length>0) await dbFetch(`${SB_URL}/rest/v1/schedules`, "POST", schedRows);
           
           setXlsxStatus({ok:true,msg:`✓ ${parsed.length}개 상품이 정상적으로 저장되었습니다.`});
