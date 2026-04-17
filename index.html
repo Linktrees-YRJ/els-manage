@@ -84,7 +84,18 @@
       });
     }
 
-    const TICKER_MAP={"마이크론":"MU","팔란티어":"PLTR","테슬라":"TSLA","인텔":"INTC","브로드컴":"AVGO","S&P500":"^GSPC","NASDAQ100":"^NDX"};
+// 티커(기호) 매핑 - 엑셀의 기초자산 이름과 일치해야 합니다.
+    const TICKER_MAP = {
+      "마이크론":"MU", "팔란티어":"PLTR", "테슬라":"TSLA", "인텔":"INTC", 
+      "브로드컴":"AVGO", "S&P500":"^GSPC", "NASDAQ100":"^NDX",
+      "유로스톡스50":"^STOXX50E", "KOSPI200":"^KS200", "HSCEI":"^HSCE", 
+      "니케이225":"^N225", "엔비디아":"NVDA", "애플":"AAPL", "AMD":"AMD"
+    };
+
+    const TODAY=new Date("2026-04-17");
+    function fmt(s){if(!s||s.trim()==="")return"";const d=new Date(s);if(isNaN(d))return s;return`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;}
+    function daysUntil(s){if(!s||s.trim()==="")return 9999;return Math.ceil((new Date(s)-TODAY)/86400000);}
+    function getNextEval(p){for(const[e]of(p.evaluationDates||[])){const d=daysUntil(e);if(d>=0&&d!==9999)return{date:e,days:d};}return null;}
     const TODAY=new Date("2026-04-17");
     function fmt(s){if(!s||s.trim()==="")return"";const d=new Date(s);if(isNaN(d))return s;return`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;}
     function daysUntil(s){if(!s||s.trim()==="")return 9999;return Math.ceil((new Date(s)-TODAY)/86400000);}
@@ -330,24 +341,41 @@
       function getInitPrice(pid,asset){const o=initPrices[pid]?.[asset];if(o!==undefined&&o!==0)return o;return db.find(p=>String(p.id)===String(pid))?.initialPrices[asset]??0;}
       function setInitPrice(pid,asset,val){setInitPrices(prev=>({...prev,[pid]:{...(prev[pid]||{}),[asset]:val}}));}
 
-      async function fetchPrices(){
-        setPricesLoading(true);
-        const results={};
-        await Promise.all(allAssets.map(async asset=>{
-          const ticker=TICKER_MAP[asset];if(!ticker)return;
-          try{
-            const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:300,tools:[{type:"web_search_20250305",name:"web_search"}],messages:[{role:"user",content:`${asset}(${ticker}) 현재 주가 숫자만. 예: 95.23`}]})});
-            const data=await res.json();
-            const txt=data.content.filter(c=>c.type==="text").map(c=>c.text).join("");
-            const num=parseFloat(txt.replace(/[^0-9.]/g,""));
-            if(!isNaN(num))results[asset]=num;
-          }catch(e){}
-        }));
-        setPrices(prev=>({...prev,...results}));
-        setLastUpdated(new Date().toLocaleTimeString("ko-KR"));
-        setPricesLoading(false);
-      }
-
+     // 야후 파이낸스 API를 이용한 안전한 현재가 조회 함수
+    async function fetchPrices(){
+      setPricesLoading(true);
+      const results={};
+      
+      await Promise.all(allAssets.map(async asset=>{
+        const ticker = TICKER_MAP[asset];
+        if(!ticker) return; // TICKER_MAP에 없는 자산은 조회하지 않음
+        
+        try {
+          // 브라우저 보안(CORS)을 우회하기 위해 allorigins 무료 프록시 사용
+          const targetUrl = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`);
+          const res = await fetch(`https://api.allorigins.win/get?url=${targetUrl}`);
+          
+          if (!res.ok) throw new Error('네트워크 응답 에러');
+          
+          const data = await res.json();
+          const yahooData = JSON.parse(data.contents);
+          
+          // 야후 파이낸스 JSON 구조에서 현재가 추출
+          if(yahooData.chart && yahooData.chart.result && yahooData.chart.result.length > 0) {
+             const price = yahooData.chart.result[0].meta.regularMarketPrice;
+             if(price !== undefined && price !== null) {
+               results[asset] = price;
+             }
+          }
+        } catch(e) {
+          console.error(`[${asset}] 현재가 조회 실패:`, e);
+        }
+      }));
+      
+      setPrices(prev=>({...prev,...results}));
+      setLastUpdated(new Date().toLocaleTimeString("ko-KR"));
+      setPricesLoading(false);
+    }
       function calcStatus(p){
         const next=getNextEval(p);
         const idx=next?p.evaluationDates.findIndex(([e])=>e===next.date):p.evaluationDates.length-1;
