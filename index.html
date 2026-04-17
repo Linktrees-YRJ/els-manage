@@ -84,14 +84,35 @@
     // ★ [기능 추가] 상품 이름 깔끔하게 줄여주는 도우미 함수
     function getShortName(fullName) {
       if(!fullName) return "";
-      const m = fullName.match(/^(.+?)\s*제?(\d+)회/);
-      if(m) {
-        // '증권'이라는 글자가 있으면 빼버리고 번호만 붙임
-        const comp = m[1].replace(/증권/g, '').trim();
-        return `${comp} ${m[2]}회`;
+      
+      // 1. '회차' 번호만 깔끔하게 숫자만 추출 (예: '1787회', '제35151회' -> '1787', '35151')
+      const numMatch = fullName.match(/(?:제)?(\d+)회/);
+      const num = numMatch ? numMatch[1] : "";
+
+      const tokens = fullName.split(" ").filter(t => t.trim() !== "");
+      let brand = tokens[0].replace(/증권|투자/g, ''); // 기본값은 맨 앞 증권사 이름
+
+      if (tokens.length >= 2) {
+        if (tokens[1].match(/(?:제)?\d+회/)) {
+          // 회사명 뒤에 바로 회차가 오는 경우 (예: 미래에셋증권 제35151회 -> 미래에셋 35151)
+          brand = tokens[0].replace(/증권|투자/g, '');
+        } else {
+          // 회사명 뒤에 상품 수식어가 오는 경우 (예: 키움 뉴글로벌 100조 ELS 1787회 -> 뉴글로벌 1787)
+          brand = tokens[1];
+          // 만약 두 번째 단어가 단순 'ELS'라면, 의미가 없으므로 증권사 이름을 유지
+          if (brand.toUpperCase() === 'ELS' || brand.toUpperCase() === 'DLS') {
+             brand = tokens[0].replace(/증권|투자/g, '');
+          }
+        }
       }
-      // '회'가 없는 이름이면 너무 길지 않게 22자에서 자름
-      if(fullName.length > 22) return fullName.substring(0, 22) + "...";
+
+      // 브랜드명과 회차 번호를 합쳐서 반환
+      if (num) {
+        return `${brand} ${num}`;
+      }
+
+      // 회차 번호가 없는 예외적인 이름일 경우
+      if(fullName.length > 20) return fullName.substring(0, 20) + "...";
       return fullName;
     }
 
