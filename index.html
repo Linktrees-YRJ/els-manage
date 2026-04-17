@@ -69,17 +69,11 @@
       return isNaN(n) ? 0 : n;
     }
 
-    // === 자산명 자동 통일 (정규화) 사전 ===
     const NORMALIZE_MAP = {
-      "마이크론 테크놀로지": "마이크론",
-      "팔란티어 테크": "팔란티어",
-      "인텔 코퍼레이션": "인텔",
-      "NVIDIA": "엔비디아",
-      "S&P 500": "S&P500",
-      "나스닥 100": "NASDAQ100", "나스닥100": "NASDAQ100",
+      "마이크론 테크놀로지": "마이크론", "팔란티어 테크": "팔란티어", "인텔 코퍼레이션": "인텔", "NVIDIA": "엔비디아",
+      "S&P 500": "S&P500", "나스닥 100": "NASDAQ100", "나스닥100": "NASDAQ100",
       "EURO STOXX 50": "유로스톡스50", "EUROSTOXX50": "유로스톡스50",
-      "코스피 200": "KOSPI200", "코스피200": "KOSPI200",
-      "홍콩H지수": "HSCEI", "홍콩 H지수": "HSCEI",
+      "코스피 200": "KOSPI200", "코스피200": "KOSPI200", "홍콩H지수": "HSCEI", "홍콩 H지수": "HSCEI",
       "닛케이225": "니케이225", "NIKKEI225": "니케이225", "NIKKEI 225": "니케이225"
     };
 
@@ -89,41 +83,28 @@
       return products.map(p=>{
         const code=String(p.product_code);
         const assets=underlyings.filter(u=>String(u.product_code)===code);
-        
-        // 엑셀에서 읽어올 때 이름을 통일시킵니다.
         const assetNames=assets.map(a=>{
-          const raw = String(a.asset_name).trim();
-          return NORMALIZE_MAP[raw] || raw;
+          const raw = String(a.asset_name).trim(); return NORMALIZE_MAP[raw] || raw;
         });
-        
         const initialPrices={}; 
         assets.forEach(a=>{ 
-          const raw = String(a.asset_name).trim();
-          const norm = NORMALIZE_MAP[raw] || raw;
+          const raw = String(a.asset_name).trim(); const norm = NORMALIZE_MAP[raw] || raw;
           initialPrices[norm] = parseNum(a.initial_price); 
         });
-        
         const sched=schedules.filter(s=>String(s.product_code)===code);
         const earlyRows=sched.filter(s=>String(s.period)!=="만기");
         const evaluationDates=earlyRows.map(s=>[formatExcelDate(s.eval_date)||" ",formatExcelDate(s.payment_date)||" "]);
-        
         let earlyBarriers = earlyRows.map(s => parseNum(s.barrier_pct)).filter(n => n > 0);
-        if(earlyBarriers.length === 0) {
-          earlyBarriers = (String(p.barriers||"")).split(/[-,]/).map(parseNum).filter(n=>n>0);
-        }
-
+        if(earlyBarriers.length === 0) earlyBarriers = (String(p.barriers||"")).split(/[-,]/).map(parseNum).filter(n=>n>0);
         let maturityMonths=36;
         const tm=String(p.term||""),my=tm.match(/(\d+)\s*년/),mm=tm.match(/(\d+)\s*개월/);
         if(my)maturityMonths=parseInt(my[1])*12; if(mm)maturityMonths+=(my?parseInt(mm[1]):parseInt(mm[1]));
         let redemptionCycle=6;
         if(tm.includes("4개월"))redemptionCycle=4; else if(tm.includes("3개월"))redemptionCycle=3;
         const isLizard=!!(p.special_note&&String(p.special_note).includes("리자드"));
-        
         return{
-          id:code, name:String(p.full_name||code), assets:assetNames, 
-          annualRate:parseNum(p.max_annual_yield), 
-          maturityMonths, redemptionCycle, earlyBarriers, 
-          knockIn:parseNum(p.ki_level)||30, 
+          id:code, name:String(p.full_name||code), assets:assetNames, annualRate:parseNum(p.max_annual_yield), 
+          maturityMonths, redemptionCycle, earlyBarriers, knockIn:parseNum(p.ki_level)||30, 
           issueDate:formatExcelDate(p.issue_date), maturityDate:formatExcelDate(p.maturity_date), 
           initialPrices, evaluationDates, isLizard, _underlyings:assets, _schedules:sched
         };
@@ -131,10 +112,8 @@
     }
 
     const TICKER_MAP = {
-      "마이크론":"MU", "팔란티어":"PLTR", "테슬라":"TSLA", 
-      "인텔":"INTC", "엔비디아":"NVDA", "브로드컴":"AVGO", "애플":"AAPL", "AMD":"AMD",
-      "S&P500":"^GSPC", "NASDAQ100":"^NDX", 
-      "유로스톡스50":"^STOXX50E", "KOSPI200":"^KS200", "HSCEI":"^HSCE", "니케이225":"^N225"
+      "마이크론":"MU", "팔란티어":"PLTR", "테슬라":"TSLA", "인텔":"INTC", "엔비디아":"NVDA", "브로드컴":"AVGO", "애플":"AAPL", "AMD":"AMD",
+      "S&P500":"^GSPC", "NASDAQ100":"^NDX", "유로스톡스50":"^STOXX50E", "KOSPI200":"^KS200", "HSCEI":"^HSCE", "니케이225":"^N225"
     };
 
     const TODAY=new Date("2026-04-17");
@@ -144,8 +123,7 @@
 
     function RatioBar({ratio, init, cur, barrier, knockIn}){
       if(!init || init <= 0) return <div style={{fontSize:12,color:"#A32D2D",padding:"8px 0",fontWeight:500}}>⚠️ 기준가 미입력 (DB 확인 필요)</div>;
-      if(cur === null || cur === undefined) return <div style={{fontSize:12,color:"#aaa",padding:"8px 0"}}>현재가 미입력 (상단 시세 새로고침 클릭)</div>;
-
+      if(cur === null || cur === undefined) return <div style={{fontSize:12,color:"#aaa",padding:"8px 0"}}>현재가 미입력 (관리자 업데이트 대기)</div>;
       const MIN=0, MAX=150, pct=v=>Math.max(0,Math.min(100,(v-MIN)/(MAX-MIN)*100));
       const kiPct=pct(knockIn), barPct=pct(barrier), curPct=pct(ratio);
       const curColor=ratio<knockIn?"#A32D2D":ratio<barrier?"#BA7517":"#0F6E56";
@@ -193,23 +171,41 @@
       const [editingTabIdx,setEditingTabIdx]=useState(null); const [tabNameInput,setTabNameInput]=useState("");
       const [xlsxLoading,setXlsxLoading]=useState(false); const [xlsxStatus,setXlsxStatus]=useState(null);
 
+      // [기능 추가] DB에서 시세 데이터를 0.1초 만에 불러오는 함수 (모든 사용자가 사용)
+      const loadPricesFromDB = useCallback(async(token) => {
+        setPricesLoading(true);
+        try {
+          const data = await sb.get("asset_prices", token);
+          const newPrices = {};
+          let latestTime = 0;
+          if (Array.isArray(data)) {
+            data.forEach(r => {
+              newPrices[r.asset] = parseFloat(r.price);
+              const t = new Date(r.updated_at).getTime();
+              if (t > latestTime) latestTime = t;
+            });
+            setPrices(newPrices);
+            if (latestTime > 0) setLastUpdated(new Date(latestTime).toLocaleString("ko-KR"));
+          }
+        } catch(e) { console.error("DB 시세 로드 실패", e); }
+        setPricesLoading(false);
+      }, []);
+
       const loadDb=useCallback(async(token)=>{
         setDbLoading(true);
         try{
           const [prods,unders,scheds]=await Promise.all([
-            sb.get("products?select=*&order=id",token),
-            sb.get("underlyings?select=*",token),
-            sb.get("schedules?select=*&order=product_id,sort_order",token),
+            sb.get("products?select=*&order=id",token), sb.get("underlyings?select=*",token), sb.get("schedules?select=*&order=product_id,sort_order",token)
           ]);
-          if(!Array.isArray(prods)){setDbLoading(false);return;}
-          setDb(prods.map(p=>{
-            const assets=unders.filter(u=>u.product_id===p.id);
-            const assetNames=assets.map(a=>a.asset_name);
-            const initialPrices={}; assets.forEach(a=>{initialPrices[a.asset_name]=Number(a.initial_price)||0;});
-            const early=scheds.filter(s=>s.product_id===p.id&&s.period!=="만기");
-            return{id:p.id,name:p.name,assets:assetNames,annualRate:Number(p.annual_rate),maturityMonths:p.maturity_months,redemptionCycle:p.redemption_cycle,earlyBarriers:p.early_barriers||[],knockIn:Number(p.knock_in),issueDate:p.issue_date,maturityDate:p.maturity_date,initialPrices,evaluationDates:early.map(s=>[s.eval_date,s.payment_date]),isLizard:p.is_lizard};
-          }));
-        }catch(e){console.error(e);}
+          if(Array.isArray(prods)){
+            setDb(prods.map(p=>{
+              const assets=unders.filter(u=>u.product_id===p.id); const assetNames=assets.map(a=>a.asset_name);
+              const initialPrices={}; assets.forEach(a=>{initialPrices[a.asset_name]=Number(a.initial_price)||0;});
+              const early=scheds.filter(s=>s.product_id===p.id&&s.period!=="만기");
+              return{id:p.id,name:p.name,assets:assetNames,annualRate:Number(p.annual_rate),maturityMonths:p.maturity_months,redemptionCycle:p.redemption_cycle,earlyBarriers:p.early_barriers||[],knockIn:Number(p.knock_in),issueDate:p.issue_date,maturityDate:p.maturity_date,initialPrices,evaluationDates:early.map(s=>[s.eval_date,s.payment_date]),isLizard:p.is_lizard};
+            }));
+          }
+        }catch(e){}
         setDbLoading(false);
       },[]);
 
@@ -220,10 +216,8 @@
           if(!Array.isArray(accs)||accs.length===0){
             const res=await sb.post("accounts",{name:"계좌 1",sort_order:0},token);
             setAccounts([{id:res[0].id,name:res[0].name,products:{}}]);
-          } else {
-            setAccounts(accs.map(a=>({id:a.id,name:a.name,products:Object.fromEntries((a.account_products||[]).map(ap=>[ap.product_id,ap.amount]))})));
-          }
-        }catch(e){console.error(e);}
+          } else setAccounts(accs.map(a=>({id:a.id,name:a.name,products:Object.fromEntries((a.account_products||[]).map(ap=>[ap.product_id,ap.amount]))})));
+        }catch(e){}
         setAccsLoading(false);
       },[]);
 
@@ -232,9 +226,13 @@
         try{
           const formattedEmail = email.includes('@') ? email : `${email}@els.local`;
           const data=await sb.signIn(formattedEmail,pw);
-          if(data.access_token){setSession(data);setScreen("main");loadDb(data.access_token);loadAccounts(data.access_token);}
-          else setAuthErr(data.error_description||data.message||"로그인 실패. 아이디/비밀번호를 확인하세요.");
-        }catch(e){setAuthErr("네트워크 오류: "+e.message);}
+          if(data.access_token){
+            setSession(data);setScreen("main");
+            loadDb(data.access_token);loadAccounts(data.access_token);
+            loadPricesFromDB(data.access_token); // 로그인 즉시 DB 시세 로딩
+          }
+          else setAuthErr(data.error_description||data.message||"로그인 실패");
+        }catch(e){setAuthErr("네트워크 오류");}
         setAuthLoading(false);
       }
       
@@ -245,7 +243,7 @@
           const data=await sb.signUp(formattedEmail,pw);
           if(data.user&&!data.error)setAuthErr("✓ 가입 완료! 이제 로그인해주세요.");
           else setAuthErr(data.error_description||data.message||"가입 실패");
-        }catch(e){setAuthErr("네트워크 오류: "+e.message);}
+        }catch(e){}
         setAuthLoading(false);
       }
 
@@ -257,7 +255,7 @@
           const r = await fetch(`${SB_URL}/auth/v1/recover`, { method: "POST", headers: { "Content-Type": "application/json", "apikey": SB_KEY }, body: JSON.stringify({ email: formattedEmail }) });
           if (r.ok) setAuthErr("✓ 비밀번호 재설정 메일이 발송되었습니다.");
           else { const err = await r.json(); setAuthErr(err.error_description || err.message || "메일 발송 실패"); }
-        } catch (e) { setAuthErr("네트워크 오류: " + e.message); }
+        } catch (e) { setAuthErr("네트워크 오류"); }
         setAuthLoading(false);
       }
 
@@ -265,94 +263,41 @@
 
       async function saveAccountProducts(accId,products){
         setSaving(true);
-        const token=session.access_token;
-        await sb.del(`account_products?account_id=eq.${accId}`,token);
+        await sb.del(`account_products?account_id=eq.${accId}`,session.access_token);
         const rows=Object.entries(products).map(([pid,amt])=>({account_id:accId,product_id:String(pid),amount:amt}));
-        if(rows.length>0) await fetch(`${SB_URL}/rest/v1/account_products`,{method:"POST",headers:{...sbH(token),"Prefer":"return=minimal"},body:JSON.stringify(rows)});
+        if(rows.length>0) await fetch(`${SB_URL}/rest/v1/account_products`,{method:"POST",headers:{...sbH(session.access_token),"Prefer":"return=minimal"},body:JSON.stringify(rows)});
         setSaving(false);
       }
 
-      async function addAccount(){
-        const token=session.access_token;
-        const res=await sb.post("accounts",{name:`계좌 ${accounts.length+1}`,sort_order:accounts.length},token);
-        setAccounts(prev=>[...prev,{id:res[0].id,name:res[0].name,products:{}}]);
-        setActiveTab(accounts.length);
-      }
-      async function dupAccount(){
-        const token=session.access_token;
-        const res=await sb.post("accounts",{name:acc.name+" (복사)",sort_order:accounts.length},token);
-        const newId=res[0].id;
-        const rows=Object.entries(acc.products).map(([pid,amt])=>({account_id:newId,product_id:String(pid),amount:amt}));
-        if(rows.length>0) await fetch(`${SB_URL}/rest/v1/account_products`,{method:"POST",headers:{...sbH(token),"Prefer":"return=minimal"},body:JSON.stringify(rows)});
-        setAccounts(prev=>[...prev,{id:newId,name:res[0].name,products:{...acc.products}}]);
-        setActiveTab(accounts.length);
-      }
-      async function delAccount(){
-        if(accounts.length===1)return;
-        await sb.del(`accounts?id=eq.${acc.id}`,session.access_token);
-        setAccounts(prev=>prev.filter((_,i)=>i!==activeTab));
-        setActiveTab(Math.max(0,activeTab-1));
-      }
-      async function renameAccount(idx,name){
-        await sb.patch(`accounts?id=eq.${accounts[idx].id}`,{name},session.access_token);
-        setAccounts(prev=>prev.map((a,i)=>i===idx?{...a,name}:a));
-      }
+      async function addAccount(){const res=await sb.post("accounts",{name:`계좌 ${accounts.length+1}`,sort_order:accounts.length},session.access_token);setAccounts(prev=>[...prev,{id:res[0].id,name:res[0].name,products:{}}]);setActiveTab(accounts.length);}
+      async function dupAccount(){const res=await sb.post("accounts",{name:acc.name+" (복사)",sort_order:accounts.length},session.access_token);const newId=res[0].id;const rows=Object.entries(acc.products).map(([pid,amt])=>({account_id:newId,product_id:String(pid),amount:amt}));if(rows.length>0) await fetch(`${SB_URL}/rest/v1/account_products`,{method:"POST",headers:{...sbH(session.access_token),"Prefer":"return=minimal"},body:JSON.stringify(rows)});setAccounts(prev=>[...prev,{id:newId,name:res[0].name,products:{...acc.products}}]);setActiveTab(accounts.length);}
+      async function delAccount(){if(accounts.length===1)return;await sb.del(`accounts?id=eq.${acc.id}`,session.access_token);setAccounts(prev=>prev.filter((_,i)=>i!==activeTab));setActiveTab(Math.max(0,activeTab-1));}
+      async function renameAccount(idx,name){await sb.patch(`accounts?id=eq.${accounts[idx].id}`,{name},session.access_token);setAccounts(prev=>prev.map((a,i)=>i===idx?{...a,name}:a));}
 
       async function handleXlsxUpload(e){
         const file=e.target.files[0];if(!file)return;
         setXlsxLoading(true);setXlsxStatus(null);
         try{
-          const buf=await file.arrayBuffer();
-          const wb=XLSX.read(buf,{type:"array",cellDates:true});
-          const parsed=parseElsExcel(wb);
-          if(parsed.length===0){setXlsxStatus({ok:false,msg:"상품 데이터를 찾을 수 없습니다."});setXlsxLoading(false);return;}
-          
-          const token=session.access_token;
-          const h={...sbH(token),"Prefer":"return=minimal"};
-          
-          async function dbFetch(url, method, body) {
-            const res = await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined });
-            if (!res.ok) {
-              const errText = await res.text();
-              let errMsg = errText;
-              try { errMsg = JSON.parse(errText).message || errText; } catch(err){}
-              throw new Error(errMsg);
-            }
-          }
-
-          await dbFetch(`${SB_URL}/rest/v1/schedules?id=gt.0`, "DELETE");
-          await dbFetch(`${SB_URL}/rest/v1/underlyings?id=gt.0`, "DELETE");
-          await dbFetch(`${SB_URL}/rest/v1/products?id=neq.NONE`, "DELETE");
-          
+          const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:"array",cellDates:true}); const parsed=parseElsExcel(wb);
+          if(parsed.length===0){setXlsxStatus({ok:false,msg:"데이터 없음"});setXlsxLoading(false);return;}
+          const token=session.access_token; const h={...sbH(token),"Prefer":"return=minimal"};
+          async function dbFetch(url, method, body) { const res = await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined }); if (!res.ok) throw new Error("업로드 에러"); }
+          await dbFetch(`${SB_URL}/rest/v1/schedules?id=gt.0`, "DELETE"); await dbFetch(`${SB_URL}/rest/v1/underlyings?id=gt.0`, "DELETE"); await dbFetch(`${SB_URL}/rest/v1/products?id=neq.NONE`, "DELETE");
           const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knockIn,issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard}));
           await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
-          
-          // 정규화된 이름으로 DB에 저장
-          const underRows=parsed.flatMap(p=>p._underlyings.map(u=>{
-            const raw = String(u.asset_name).trim();
-            const norm = NORMALIZE_MAP[raw] || raw;
-            return {product_id:p.id, asset_name:norm, initial_price:parseNum(u.initial_price)};
-          }));
+          const underRows=parsed.flatMap(p=>p._underlyings.map(u=>{ const raw = String(u.asset_name).trim(); const norm = NORMALIZE_MAP[raw] || raw; return {product_id:p.id, asset_name:norm, initial_price:parseNum(u.initial_price)}; }));
           if(underRows.length>0) await dbFetch(`${SB_URL}/rest/v1/underlyings`, "POST", underRows);
-          
           const rawS=XLSX.utils.sheet_to_json(wb.Sheets["Schedules"],{defval:""});
           const schedRows=rawS.map((s,i)=>({product_id:String(s.product_code),period:String(s.period),eval_date:formatExcelDate(s.eval_date),payment_date:formatExcelDate(s.payment_date),barrier_pct:parseNum(s.barrier_pct)||null,yield_pct:parseNum(s.yield_pct)||null,sort_order:i}));
           if(schedRows.length>0) await dbFetch(`${SB_URL}/rest/v1/schedules`, "POST", schedRows);
-          
-          setXlsxStatus({ok:true,msg:`✓ ${parsed.length}개 상품이 정상적으로 저장되었습니다.`});
-          await loadDb(token);
-        }catch(err){
-          console.error(err);
-          setXlsxStatus({ok:false,msg:`업로드 실패: ${err.message}`});
-        }
+          setXlsxStatus({ok:true,msg:`✓ ${parsed.length}개 상품이 저장되었습니다.`}); await loadDb(token);
+        }catch(err){setXlsxStatus({ok:false,msg:`실패: ${err.message}`});}
         setXlsxLoading(false);
       }
 
       const acc=accounts[activeTab]||accounts[0]||{id:null,name:"",products:{}};
-      const myProductIds=Object.keys(acc.products||{}).map(String);
-      const myProducts=db.filter(p=>myProductIds.includes(String(p.id)));
-      const totalAmt=myProducts.reduce((s,p)=>s+(acc.products[p.id]||0),0);
-      const weightedRate=totalAmt>0?myProducts.reduce((s,p)=>s+(acc.products[p.id]||0)*p.annualRate,0)/totalAmt:0;
+      const myProductIds=Object.keys(acc.products||{}).map(String); const myProducts=db.filter(p=>myProductIds.includes(String(p.id)));
+      const totalAmt=myProducts.reduce((s,p)=>s+(acc.products[p.id]||0),0); const weightedRate=totalAmt>0?myProducts.reduce((s,p)=>s+(acc.products[p.id]||0)*p.annualRate,0)/totalAmt:0;
       const upcomingEvals=myProducts.map(p=>{const n=getNextEval(p);return n&&n.days<=14?{product:p,...n}:null;}).filter(Boolean).sort((a,b)=>a.days-b.days);
       const allProductIds=[...new Set(accounts.flatMap(a=>Object.keys(a.products||{}).map(String)))];
       const dashProducts=dashView==="account"?myProducts:db.filter(p=>allProductIds.includes(String(p.id)));
@@ -367,15 +312,16 @@
       function getInitPrice(pid,asset){const o=initPrices[pid]?.[asset];if(o!==undefined&&o!==0)return o;return db.find(p=>String(p.id)===String(pid))?.initialPrices[asset]??0;}
       function setInitPrice(pid,asset,val){setInitPrices(prev=>({...prev,[pid]:{...(prev[pid]||{}),[asset]:val}}));}
 
-     // === 가장 빠르고 안정적인 시세 조회 함수 (묶음 조회 + 3중 프록시) ===
-      async function fetchPrices(){
+      // [기능 추가] 관리자가 수동으로 야후에서 시세를 수집해 DB에 밀어넣는 핵심 로직
+      async function updatePricesFromYahoo() {
         setPricesLoading(true);
         const results = {};
         const assetToTicker = {};
         const uniqueTickers = new Set();
         
-        // 1. 엑셀에 있는 자산들의 티커를 중복 없이 모음
-        allAssets.forEach(asset => {
+        // 시스템에 등록된 모든 상품의 기초자산 추출 (대시보드 노출 여부와 무관하게 모두 수집)
+        const totalAssets = [...new Set(db.flatMap(p => p.assets))];
+        totalAssets.forEach(asset => {
           const clean = String(asset).trim();
           if(TICKER_MAP[clean]) {
             assetToTicker[clean] = TICKER_MAP[clean];
@@ -384,11 +330,8 @@
         });
 
         if (uniqueTickers.size > 0) {
-          // 2. 여러 종목을 쉼표로 연결 (예: MU,PLTR,TSLA,NVDA) -> 한 번의 요청으로 끝냄
           const symbols = Array.from(uniqueTickers).join(',');
           const targetUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
-          
-          // 3. 우회 서버(프록시) 3중 대비책 준비 (1번이 막히면 2번, 2번 막히면 3번)
           const proxies = [
             `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
             `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
@@ -396,45 +339,44 @@
           ];
 
           let data = null;
-          
-          // 4. 서버를 하나씩 찔러보고 성공하면 즉시 종료 (보통 1~2초 내 완료)
           for (const proxy of proxies) {
             try {
               const res = await fetch(proxy);
-              if (res.ok) {
-                data = await res.json();
-                if (data?.quoteResponse?.result) break; // 성공 시 반복문 탈출
-              }
-            } catch(e) {
-              console.warn("중계 서버 1곳 지연, 즉시 다음 서버로 재시도합니다.");
-            }
+              if (res.ok) { data = await res.json(); if (data?.quoteResponse?.result) break; }
+            } catch(e) {}
           }
 
-          // 5. 한 번에 받아온 모든 가격을 화면에 매핑
           if (data && data.quoteResponse && data.quoteResponse.result) {
             const tickerPrices = {};
-            data.quoteResponse.result.forEach(quote => {
-              if (quote.regularMarketPrice) tickerPrices[quote.symbol] = quote.regularMarketPrice;
-            });
-
-            allAssets.forEach(asset => {
+            data.quoteResponse.result.forEach(q => { if(q.regularMarketPrice) tickerPrices[q.symbol] = q.regularMarketPrice; });
+            totalAssets.forEach(asset => {
               const clean = String(asset).trim();
               const t = assetToTicker[clean];
               if (t && tickerPrices[t]) results[clean] = tickerPrices[t];
             });
-          } else {
-            alert("일시적인 네트워크 혼잡입니다. 약 5~10초 뒤에 다시 눌러주세요.");
-          }
+            
+            // 추출한 가격 데이터를 DB의 asset_prices 테이블로 업서트(삽입 또는 수정)
+            const rows = Object.entries(results).map(([asset, price]) => ({ asset, price, updated_at: new Date().toISOString() }));
+            if(rows.length > 0) {
+               try {
+                 const r = await fetch(`${SB_URL}/rest/v1/asset_prices?on_conflict=asset`, {
+                   method: "POST",
+                   headers: { ...sbH(session.access_token), "Prefer": "resolution=merge-duplicates" },
+                   body: JSON.stringify(rows)
+                 });
+                 if(!r.ok) throw new Error("DB 업데이트 권한이 없거나 설정이 잘못되었습니다.");
+                 alert(`✓ ${rows.length}개 기초자산 최신 시세가 DB에 성공적으로 갱신되었습니다!`);
+               } catch(err) { alert(err.message); }
+            }
+          } else alert("야후 파이낸스 서버가 조회를 거부했습니다. 조금 뒤 다시 시도해주세요.");
         }
         
-        setPrices(prev=>({...prev,...results}));
-        setLastUpdated(new Date().toLocaleTimeString("ko-KR"));
+        await loadPricesFromDB(session.access_token); // 수집 완료 후 최신 DB 데이터 다시 불러오기
         setPricesLoading(false);
       }
 
       function calcStatus(p){
-        const next=getNextEval(p);
-        const idx=next?p.evaluationDates.findIndex(([e])=>e===next.date):p.evaluationDates.length-1;
+        const next=getNextEval(p); const idx=next?p.evaluationDates.findIndex(([e])=>e===next.date):p.evaluationDates.length-1;
         const barrier=p.earlyBarriers[idx]??p.earlyBarriers[p.earlyBarriers.length-1];
         const assetStatuses=p.assets.map(asset=>{const cur=prices[asset]||null;const init=getInitPrice(p.id,asset);const ratio=(cur&&init>0)?(cur/init)*100:null;return{asset,cur,init,ratio,isKnockedIn:ratio!==null?ratio<p.knockIn:null,canRedeem:ratio!==null?ratio>=barrier:null,barrier};});
         return{assetStatuses,anyKnockedIn:assetStatuses.some(a=>a.isKnockedIn===true),canRedeem:assetStatuses.every(a=>a.canRedeem===true),barrier,next};
@@ -482,30 +424,36 @@
       if(screen==="admin") return (
         <div style={C.wrap}>
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <span style={{fontSize:17,fontWeight:500}}>관리자 — 상품 DB</span>
+            <span style={{fontSize:17,fontWeight:500}}>관리자 기능</span>
             <button style={C.btn} onClick={()=>setScreen("main")}>메인으로</button>
           </div>
           <div style={{padding:16,maxWidth:800,margin:"0 auto"}}>
-            <div style={{...C.card,marginBottom:16}}>
-              <div style={{fontSize:15,fontWeight:500,marginBottom:4}}>엑셀 파일로 DB 업데이트</div>
-              <p style={{fontSize:13,color:"#666",marginBottom:12}}>Products / Underlyings / Schedules 3개 시트가 포함된 xlsx를 업로드하면 전체 DB가 교체됩니다.</p>
+            
+            {/* [신규 기능] 야후 시세 강제 업데이트 버튼 */}
+            <div style={{...C.card,marginBottom:16,border:"1px solid #185FA5"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                <span style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>야후 파이낸스 시세 업데이트 (DB 캐싱)</span>
+              </div>
+              <p style={{fontSize:13,color:"#666",marginBottom:12}}>하루 1번 이 버튼을 눌러주세요. 야후에서 현재가를 수집해 DB에 저장하며, 이후 모든 사용자는 지연 시간 없이 0.1초 만에 최신 시세를 볼 수 있습니다.</p>
               <div style={{display:"flex",alignItems:"center",gap:12}}>
-                <label style={{...C.btnP,display:"inline-flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+                <button style={{...C.btnP, opacity:pricesLoading?0.6:1}} onClick={updatePricesFromYahoo} disabled={pricesLoading}>
+                  {pricesLoading?"데이터 수집 및 저장 중 (약 5~10초)...":"최신 시세 수집 및 DB 덮어쓰기"}
+                </button>
+                {lastUpdated&&<span style={{fontSize:12,color:"#888"}}>마지막 DB 갱신: {lastUpdated}</span>}
+              </div>
+            </div>
+
+            <div style={{...C.card,marginBottom:16}}>
+              <div style={{fontSize:15,fontWeight:500,marginBottom:4}}>엑셀 파일로 ELS 상품 DB 업데이트</div>
+              <p style={{fontSize:13,color:"#666",marginBottom:12}}>Products / Underlyings / Schedules 3개 시트가 포함된 xlsx를 업로드하면 기존 DB가 초기화되고 교체됩니다.</p>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <label style={{...C.btnP,background:"#555",display:"inline-flex",alignItems:"center",gap:6,cursor:"pointer"}}>
                   📂 엑셀 업로드
                   <input type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleXlsxUpload}/>
                 </label>
                 {xlsxLoading&&<span style={{fontSize:13,color:"#888"}}>저장 중...</span>}
               </div>
               {xlsxStatus&&<div style={{marginTop:12,padding:"10px 14px",borderRadius:8,background:xlsxStatus.ok?"#E1F5EE":"#FCEBEB",color:xlsxStatus.ok?"#0F6E56":"#A32D2D",fontSize:13,fontWeight:500}}>{xlsxStatus.msg}</div>}
-            </div>
-            <div style={C.card}>
-              <div style={{fontSize:14,fontWeight:500,marginBottom:10}}>현재 DB ({db.length}개)</div>
-              {db.map(p=>(
-                <div key={p.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"0.5px solid #eee",fontSize:13}}>
-                  <span style={{fontWeight:500}}>{p.name}{p.isLizard&&<span style={{marginLeft:6,fontSize:11,padding:"1px 6px",borderRadius:4,background:"#FAEEDA",color:"#BA7517"}}>리자드</span>}</span>
-                  <span style={{color:"#666"}}>{p.assets.join("/")} | 연 {p.annualRate}%</span>
-                </div>
-              ))}
             </div>
           </div>
         </div>
@@ -516,7 +464,7 @@
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             <span style={{fontSize:17,fontWeight:500}}>ELS 관리</span>
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
-              {isAdmin&&<button style={{...C.btn,fontSize:13}} onClick={()=>setScreen("admin")}>관리자</button>}
+              {isAdmin&&<button style={{...C.btn,fontSize:13,border:"1px solid #185FA5",color:"#185FA5"}} onClick={()=>setScreen("admin")}>관리자</button>}
               <span style={{fontSize:13,color:"#666"}}>{session?.user?.email}</span>
               <button style={{...C.btn,fontSize:13}} onClick={handleLogout}>로그아웃</button>
             </div>
@@ -619,8 +567,9 @@
                   ))}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  {lastUpdated&&<span style={{fontSize:12,color:"#888"}}>업데이트: {lastUpdated}</span>}
-                  <button style={{...C.btnP,padding:"7px 14px",fontSize:13}} onClick={fetchPrices} disabled={pricesLoading}>{pricesLoading?"조회 중...":"시세 새로고침"}</button>
+                  {lastUpdated&&<span style={{fontSize:12,color:"#888"}}>기준: {lastUpdated}</span>}
+                  {/* [버튼 변경] 야후가 아닌 DB에서 가져오도록 변경 */}
+                  <button style={{...C.btn,padding:"7px 14px",fontSize:13,border:"1px solid #185FA5",color:"#185FA5"}} onClick={()=>loadPricesFromDB(session.access_token)} disabled={pricesLoading}>{pricesLoading?"조회 중...":"DB 시세 불러오기"}</button>
                 </div>
               </div>
               {Object.keys(prices).length>0&&(
@@ -636,7 +585,6 @@
                   </div>
                 </div>
               )}
-              {pricesLoading&&<div style={{...C.card,textAlign:"center",padding:30,color:"#888"}}>시세를 조회하고 있습니다...</div>}
               {dashProducts.length===0
                 ?<div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>표시할 상품이 없습니다.</div>
                 :dashProducts.map(p=>{
