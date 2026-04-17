@@ -356,9 +356,15 @@
             const rows = Object.entries(results).map(([asset, price]) => ({ asset, price, updated_at: new Date().toISOString() }));
             if(rows.length > 0) {
                try {
-                 const r = await fetch(`${SB_URL}/rest/v1/asset_prices?on_conflict=asset`, {
+                // 기존 데이터를 깔끔하게 비우고
+                 await fetch(`${SB_URL}/rest/v1/asset_prices?asset=neq.NONE`, { 
+                   method: "DELETE", 
+                   headers: sbH(session.access_token) 
+                 });
+                 // 새 데이터 밀어넣기
+                 const r = await fetch(`${SB_URL}/rest/v1/asset_prices`, {
                    method: "POST",
-                   headers: { ...sbH(session.access_token), "Prefer": "resolution=merge-duplicates" },
+                   headers: { ...sbH(session.access_token), "Prefer": "return=minimal" },
                    body: JSON.stringify(rows)
                  });
                  if(!r.ok) throw new Error("DB 업데이트 권한 오류");
