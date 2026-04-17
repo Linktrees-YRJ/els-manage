@@ -69,16 +69,39 @@
       return isNaN(n) ? 0 : n;
     }
 
+    // === 자산명 자동 통일 (정규화) 사전 ===
+    const NORMALIZE_MAP = {
+      "마이크론 테크놀로지": "마이크론",
+      "팔란티어 테크": "팔란티어",
+      "인텔 코퍼레이션": "인텔",
+      "NVIDIA": "엔비디아",
+      "S&P 500": "S&P500",
+      "나스닥 100": "NASDAQ100", "나스닥100": "NASDAQ100",
+      "EURO STOXX 50": "유로스톡스50", "EUROSTOXX50": "유로스톡스50",
+      "코스피 200": "KOSPI200", "코스피200": "KOSPI200",
+      "홍콩H지수": "HSCEI", "홍콩 H지수": "HSCEI",
+      "닛케이225": "니케이225", "NIKKEI225": "니케이225", "NIKKEI 225": "니케이225"
+    };
+
     function parseElsExcel(wb){
       const toJ=name=>{const s=wb.Sheets[name];return s?XLSX.utils.sheet_to_json(s,{defval:""}):[];};
       const products=toJ("Products"),underlyings=toJ("Underlyings"),schedules=toJ("Schedules");
       return products.map(p=>{
         const code=String(p.product_code);
         const assets=underlyings.filter(u=>String(u.product_code)===code);
-        const assetNames=assets.map(a=>String(a.asset_name));
+        
+        // 엑셀에서 읽어올 때 이름을 통일시킵니다.
+        const assetNames=assets.map(a=>{
+          const raw = String(a.asset_name).trim();
+          return NORMALIZE_MAP[raw] || raw;
+        });
         
         const initialPrices={}; 
-        assets.forEach(a=>{ initialPrices[String(a.asset_name)] = parseNum(a.initial_price); });
+        assets.forEach(a=>{ 
+          const raw = String(a.asset_name).trim();
+          const norm = NORMALIZE_MAP[raw] || raw;
+          initialPrices[norm] = parseNum(a.initial_price); 
+        });
         
         const sched=schedules.filter(s=>String(s.product_code)===code);
         const earlyRows=sched.filter(s=>String(s.period)!=="만기");
@@ -108,16 +131,12 @@
     }
 
     const TICKER_MAP = {
-      "마이크론":"MU", "마이크론 테크놀로지":"MU", 
-      "팔란티어":"PLTR", "팔란티어 테크":"PLTR", 
-      "테슬라":"TSLA", 
-      "인텔":"INTC", "인텔 코퍼레이션":"INTC", 
-      "엔비디아":"NVDA", "NVIDIA":"NVDA",
-      "브로드컴":"AVGO", "애플":"AAPL", "AMD":"AMD",
-      "S&P500":"^GSPC", "S&P 500":"^GSPC", "NASDAQ100":"^NDX", 
-      "유로스톡스50":"^STOXX50E", "KOSPI200":"^KS200", "HSCEI":"^HSCE",
-      "니케이225":"^N225", "닛케이225":"^N225", "NIKKEI225":"^N225", "NIKKEI 225":"^N225"
+      "마이크론":"MU", "팔란티어":"PLTR", "테슬라":"TSLA", 
+      "인텔":"INTC", "엔비디아":"NVDA", "브로드컴":"AVGO", "애플":"AAPL", "AMD":"AMD",
+      "S&P500":"^GSPC", "NASDAQ100":"^NDX", 
+      "유로스톡스50":"^STOXX50E", "KOSPI200":"^KS200", "HSCEI":"^HSCE", "니케이225":"^N225"
     };
+
     const TODAY=new Date("2026-04-17");
     function fmt(s){if(!s||s.trim()==="")return"";const d=new Date(s);if(isNaN(d))return s;return`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;}
     function daysUntil(s){if(!s||s.trim()==="")return 9999;return Math.ceil((new Date(s)-TODAY)/86400000);}
@@ -308,7 +327,12 @@
           const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knockIn,issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard}));
           await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
           
-          const underRows=parsed.flatMap(p=>p._underlyings.map(u=>({product_id:p.id,asset_name:String(u.asset_name),initial_price:parseNum(u.initial_price)})));
+          // 정규화된 이름으로 DB에 저장
+          const underRows=parsed.flatMap(p=>p._underlyings.map(u=>{
+            const raw = String(u.asset_name).trim();
+            const norm = NORMALIZE_MAP[raw] || raw;
+            return {product_id:p.id, asset_name:norm, initial_price:parseNum(u.initial_price)};
+          }));
           if(underRows.length>0) await dbFetch(`${SB_URL}/rest/v1/underlyings`, "POST", underRows);
           
           const rawS=XLSX.utils.sheet_to_json(wb.Sheets["Schedules"],{defval:""});
@@ -343,54 +367,70 @@
       function getInitPrice(pid,asset){const o=initPrices[pid]?.[asset];if(o!==undefined&&o!==0)return o;return db.find(p=>String(p.id)===String(pid))?.initialPrices[asset]??0;}
       function setInitPrice(pid,asset,val){setInitPrices(prev=>({...prev,[pid]:{...(prev[pid]||{}),[asset]:val}}));}
 
-      // 단 한 번의 요청으로 모든 시세를 가져오는 향상된 함수
-      // 서버 차단을 막기 위해 '순차적 조회 + 이중 프록시 + 대기 시간'을 적용한 최종 함수
+      // === 효율성을 극대화한 시세 조회 함수 ===
       async function fetchPrices(){
         setPricesLoading(true);
         const results = {};
-        const validAssets = allAssets.filter(asset => TICKER_MAP[String(asset).trim()]);
+        const assetToTicker = {};
+        const uniqueTickers = new Set();
         
-        for (const asset of validAssets) {
-          const ticker = TICKER_MAP[String(asset).trim()];
-          
+        // 1. 중복을 제거하여 야후 서버에 물어볼 고유 티커만 추출
+        allAssets.forEach(asset => {
+          const clean = String(asset).trim();
+          if(TICKER_MAP[clean]) {
+            assetToTicker[clean] = TICKER_MAP[clean];
+            uniqueTickers.add(TICKER_MAP[clean]);
+          }
+        });
+
+        const tickerPrices = {};
+
+        // 2. 고유 티커별로 딱 1번씩만 조회 (서버 차단 방지)
+        for (const ticker of uniqueTickers) {
           try {
-            const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
-            let yahooData = null;
+            const ts = Date.now(); // 캐시 무력화
+            const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d&_t=${ts}`;
+            let price = null;
 
-            // 1순위 시도: corsproxy 서버 사용
+            // 시도 1: allorigins (가장 안정적)
             try {
-              const res1 = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
-              if (res1.ok) {
-                yahooData = await res1.json();
+              const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`);
+              if(res.ok) {
+                const data = await res.json();
+                if(data.chart?.result?.[0]?.meta?.regularMarketPrice) price = data.chart.result[0].meta.regularMarketPrice;
               }
-            } catch (err1) { console.warn("1순위 서버 실패, 2순위로 넘어갑니다."); }
+            } catch(e) {}
 
-            // 1순위가 실패했다면 2순위 시도: allorigins 서버 사용
-            if (!yahooData) {
-              const res2 = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
-              const data2 = await res2.json();
-              if (data2.contents) {
-                yahooData = JSON.parse(data2.contents);
-              }
+            // 시도 2: corsproxy.io (시도 1 실패 시)
+            if(!price) {
+              try {
+                const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
+                if(res.ok) {
+                  const data = await res.json();
+                  if(data.chart?.result?.[0]?.meta?.regularMarketPrice) price = data.chart.result[0].meta.regularMarketPrice;
+                }
+              } catch(e) {}
             }
 
-            // 받아온 데이터에서 가격 추출
-            if(yahooData && yahooData.chart && yahooData.chart.result && yahooData.chart.result.length > 0) {
-               const price = yahooData.chart.result[0].meta.regularMarketPrice;
-               if(price !== undefined && price !== null) {
-                 results[asset] = price;
-               }
-            }
-          } catch(e) {
-            console.error(`[${asset}] 조회 완전히 실패:`, e);
+            if(price) tickerPrices[ticker] = price;
+          } catch(err) {
+            console.error(`[${ticker}] 에러:`, err);
           }
           
-          // ⚠️ 핵심: 서버가 디도스(DDoS) 공격으로 오해하지 않도록 1개 조회 후 0.5초(500ms) 휴식
-          await new Promise(r => setTimeout(r, 500));
+          await new Promise(r => setTimeout(r, 600)); // 다음 조회까지 0.6초 대기
         }
+
+        // 3. 받아온 가격을 화면에 표시할 원래 이름들에 매핑
+        allAssets.forEach(asset => {
+          const clean = String(asset).trim();
+          const t = assetToTicker[clean];
+          if(t && tickerPrices[t]) {
+            results[clean] = tickerPrices[t];
+          }
+        });
         
-        if(Object.keys(results).length === 0) {
-          alert("주식 시장 데이터 서버가 일시적으로 혼잡합니다. 잠시 후 다시 새로고침을 눌러주세요.");
+        if(Object.keys(results).length === 0 && uniqueTickers.size > 0) {
+          alert("야후 파이낸스 서버가 일시적으로 조회를 차단했습니다. 잠시 후 다시 시도해주세요.");
         }
         
         setPrices(prev=>({...prev,...results}));
