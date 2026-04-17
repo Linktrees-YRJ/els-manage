@@ -294,7 +294,7 @@
         setAccounts(prev=>[...prev,{id:newId,name:res[0].name,products:{...acc.products}}]);
         setActiveTab(accounts.length);
       }
-      async function delAccount(){if(accounts.length===1)return;await sb.del(`accounts?id=eq.${acc.id}`,session.access_token);setAccounts(prev=>prev.filter((_,i)=>i!==activeTab));setActiveTab(Math.max(0,activeTab-1));}
+      async function delAccount(){if(accounts.length===1)return; if(!window.confirm(`'${acc.name}' 계좌를 정말 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없으며, 담겨있는 상품 정보도 함께 사라집니다.)`)) return; await sb.del(`accounts?id=eq.${acc.id}`,session.access_token);setAccounts(prev=>prev.filter((_,i)=>i!==activeTab));setActiveTab(Math.max(0,activeTab-1));}
       async function renameAccount(idx,name){await sb.patch(`accounts?id=eq.${accounts[idx].id}`,{name},session.access_token);setAccounts(prev=>prev.map((a,i)=>i===idx?{...a,name}:a));}
 
       async function handleXlsxUpload(e){
