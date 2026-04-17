@@ -241,7 +241,7 @@
         try{
           const formattedEmail = email.includes('@') ? email : `${email}@els.local`;
           const data=await sb.signUp(formattedEmail,pw);
-          if(data.user&&!data.error)setAuthErr("✓ 가입 완료!");
+          if(data.user&&!data.error)setAuthErr("✓ 가입 완료! 이제 로그인해주세요.");
           else setAuthErr(data.error_description||data.message||"가입 실패");
         }catch(e){}
         setAuthLoading(false);
@@ -319,7 +319,7 @@
         totalAssets.forEach(asset => { if(TICKER_MAP[asset.trim()]) uniqueTickers.add(TICKER_MAP[asset.trim()]); });
 
         if (uniqueTickers.size > 0) {
-          // ★ [중요] 여기에 본인의 구글 스크립트 웹 앱 주소를 꼭 입력하세요 ★
+          // ★ 여기에 본인의 구글 스크립트 웹 앱 주소를 꼭 입력하세요 ★
           const GAS_URL = "https://script.google.com/macros/s/AKfycbwh9Lh5RP3VCMfQIu_zouK0_QgGtngRbE6VUXzL002xdhdRrc1YEg861uyfGB5ctNH1/exec";
           try {
             const res = await fetch(`${GAS_URL}?symbols=${Array.from(uniqueTickers).join(',')}`);
@@ -395,19 +395,15 @@
         <div style={{...C.wrap,display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh"}}>
           <div style={{...C.card,width:340,margin:"0 auto"}}>
             <h2 style={{fontSize:20,fontWeight:500,marginBottom:16}}>ELS 관리 시스템</h2>
-            
-            {/* 로그인 / 회원가입 탭 토글 복구 */}
             <div style={{display:"flex",marginBottom:20,border:"1px solid #ddd",borderRadius:8,overflow:"hidden"}}>
               {[["login","로그인"],["signup","회원가입"]].map(([key,label])=>(
                 <button key={key} onClick={()=>{setAuthTab(key);setAuthErr("");}} style={{flex:1,padding:"8px",border:"none",background:authTab===key?"#185FA5":"transparent",color:authTab===key?"#fff":"#666",cursor:"pointer",fontSize:14}}>{label}</button>
               ))}
             </div>
-            
             <div style={{marginBottom:12}}>
               <label style={C.label}>아이디</label>
-              <input style={C.input} type="text" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(authTab==="login"?handleLogin():handleSignUp())} placeholder="아이디 입력 (예: admin)"/>
+              <input style={C.input} type="text" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(authTab==="login"?handleLogin():handleSignUp())} placeholder="아이디 입력"/>
             </div>
-            
             <div style={{marginBottom:16}}>
               <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4}}>
                 <label style={{...C.label, marginBottom:0}}>비밀번호</label>
@@ -415,21 +411,17 @@
               </div>
               <input style={C.input} type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(authTab==="login"?handleLogin():handleSignUp())} placeholder={authTab === "login" ? "비밀번호" : "비밀번호 (6자리 이상 입력)"}/>
             </div>
-            
-            {/* 비밀번호 찾기 복구 */}
             {authTab === "login" && (
               <div style={{textAlign: "right", marginTop: -8, marginBottom: 16}}>
                 <button onClick={handleResetPassword} disabled={authLoading} style={{background:"none", border:"none", color:"#666", fontSize:12, cursor:"pointer", textDecoration:"underline"}}>비밀번호를 잊으셨나요?</button>
               </div>
             )}
-            
             {authErr&&<p style={{color:authErr.includes("완료")||authErr.includes("발송")?"#0F6E56":"#A32D2D",fontSize:13,marginBottom:10}}>{authErr}</p>}
             <button style={{...C.btnP,width:"100%",padding:10}} onClick={authTab==="login"?handleLogin:handleSignUp} disabled={authLoading}>{authLoading?"처리 중...":(authTab==="login"?"로그인":"회원가입")}</button>
           </div>
         </div>
       );
 
-      // [복구됨] 관리자 화면
       if(screen==="admin") return (
         <div style={C.wrap}>
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
@@ -495,7 +487,6 @@
           </div>
 
           <div style={{padding:16,maxWidth:800,margin:"0 auto"}}>
-            {/* --- 상품 목록 화면 --- */}
             {mainTab==="list"&&(<>
               {!editMode && (<>
                 <div style={{display:"flex",gap:10,marginBottom:12}}>{[["총 가입금액",`${totalAmt.toLocaleString()}만`],["평균 수익률",`${weightedRate.toFixed(1)}%`]].map(([l,v])=>(<div key={l} style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>{l}</div><div style={{fontSize:20,fontWeight:500}}>{v}</div></div>))}</div>
@@ -516,29 +507,44 @@
                 <button style={{...C.btnP,width:"100%",marginTop:10}} onClick={()=>setEditMode(true)}>수정</button>
               </>)}
               
-              {/* [복구됨] 상품 목록 - 수정 모드 (금액 입력기) */}
               {editMode && (<>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                   <span style={{fontSize:15,fontWeight:500}}>수정 모드</span>
                   <div style={{display:"flex",gap:8}}>
+                    {/* [기능 추가] 전체 선택 / 전체 해제 버튼 */}
+                    <button style={C.btn} onClick={()=>{
+                      const allSelected = myProducts.length > 0 && myProducts.every(p => selectedDelete[p.id]);
+                      if (allSelected) { setSelectedDelete({}); }
+                      else {
+                        const next = {};
+                        myProducts.forEach(p => next[p.id] = true);
+                        setSelectedDelete(next);
+                      }
+                    }}>
+                      {(myProducts.length > 0 && myProducts.every(p => selectedDelete[p.id])) ? "전체 해제" : "전체 선택"}
+                    </button>
                     {Object.values(selectedDelete).some(Boolean)&&<button style={C.btnD} onClick={deleteSelected}>선택 삭제</button>}
                     <button style={C.btn} onClick={()=>{setEditMode(false);setSelectedDelete({});}}>취소</button>
                   </div>
                 </div>
                 {myProducts.map(p=>(
                   <div key={p.id} style={C.card}>
-                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-                      <input type="checkbox" checked={!!selectedDelete[p.id]} onChange={e=>setSelectedDelete(prev=>({...prev,[p.id]:e.target.checked}))} style={{width:16,height:16}}/>
+                    {/* [기능 개선] 윗부분 전체를 클릭 영역으로 변경 (커서 포인터 추가) */}
+                    <div 
+                      onClick={() => setSelectedDelete(prev => ({...prev, [p.id]: !prev[p.id]}))}
+                      style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,cursor:"pointer"}}
+                    >
+                      <input type="checkbox" checked={!!selectedDelete[p.id]} onChange={()=>{}} style={{width:16,height:16,pointerEvents:"none"}}/>
                       <span style={{fontSize:14,fontWeight:500,flex:1}}>{p.name}</span>
                       <span style={{fontSize:13,color:"#888"}}>연 {p.annualRate}%</span>
                     </div>
                     <div style={{display:"flex",alignItems:"stretch",border:"1px solid #888",borderRadius:10,overflow:"hidden"}}>
-                      <input type="number" value={acc.products[p.id]||0} onFocus={e=>{if(e.target.value==="0")e.target.value="";}} onBlur={e=>{if(e.target.value==="")setAmt(p.id,0);}} onChange={e=>setAmt(p.id,parseInt(e.target.value)||0)} style={{width:90,padding:"9px 10px",fontSize:14,border:"none",borderRight:"1px solid #888",outline:"none"}}/>
-                      <span style={{display:"flex",alignItems:"center",padding:"0 8px",fontSize:13,color:"#888",borderRight:"1px solid #888",background:"#f5f5f5"}}>만원</span>
+                      <input type="number" value={acc.products[p.id]||0} onFocus={e=>{if(e.target.value==="0")e.target.value="";}} onBlur={e=>{if(e.target.value==="")setAmt(p.id,0);}} onChange={e=>setAmt(p.id,parseInt(e.target.value)||0)} style={{width:90,padding:"9px 10px",fontSize:14,border:"none",borderRight:"1px solid #888",outline:"none",background:"#fff",color:"#111"}}/>
+                      <span style={{display:"flex",alignItems:"center",padding:"0 8px",fontSize:13,color:"#888",borderRight:"1px solid #888",background:"#f5f5f5",whiteSpace:"nowrap"}}>만원</span>
                       {[["+100만",100],["+10만",10],["+1만",1]].map(([label,val])=>(
-                        <button key={label} onClick={()=>addAmtFn(p.id,val)} style={{flex:1,padding:"9px 6px",fontSize:13,border:"none",borderRight:"1px solid #888",background:"#fff",cursor:"pointer"}}>{label}</button>
+                        <button key={label} onClick={()=>addAmtFn(p.id,val)} style={{flex:1,padding:"9px 6px",fontSize:13,border:"none",borderRight:"1px solid #888",background:"#fff",color:"#111",cursor:"pointer",whiteSpace:"nowrap"}}>{label}</button>
                       ))}
-                      <button onClick={()=>setAmt(p.id,0)} style={{padding:"9px 10px",fontSize:13,border:"none",background:"#fff",color:"#A32D2D",cursor:"pointer"}}>초기화</button>
+                      <button onClick={()=>setAmt(p.id,0)} style={{padding:"9px 10px",fontSize:13,border:"none",background:"#fff",color:"#A32D2D",cursor:"pointer",whiteSpace:"nowrap"}}>초기화</button>
                     </div>
                   </div>
                 ))}
@@ -549,7 +555,6 @@
               </>)}
             </>)}
 
-            {/* --- 대시보드 화면 --- */}
             {mainTab==="dashboard"&&(<>
               <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16,background:"#fff",padding:"12px 16px",borderRadius:8,border:"0.5px solid #e5e5e5"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
@@ -579,7 +584,6 @@
                       <option value="순연 예상">순연 예상</option>
                       <option value="낙인터치 상환가능">낙인터치 상환가능</option>
                       <option value="낙인터치 손실위험">낙인터치 손실위험</option>
-                      
                     </select>
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:6}}>
@@ -649,7 +653,6 @@
             </>)}
           </div>
 
-          {/* [복구됨] 상품 추가 모달 */}
           {addModal&&(
             <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",zIndex:100}}>
               <div style={{background:"#fff",width:"100%",maxHeight:"85vh",overflowY:"auto",borderRadius:"16px 16px 0 0",padding:20}}>
@@ -667,7 +670,17 @@
                   const allChecked=list.length>0&&list.every(p=>checkedAdd[p.id]);
                   return(<>
                     {list.length>0&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}><button style={{...C.btn,fontSize:12,padding:"4px 10px"}} onClick={()=>{const next={};list.forEach(p=>next[p.id]=!allChecked);setCheckedAdd(prev=>({...prev,...next}));}}>{allChecked?"전체 해제":"전체 선택"}</button></div>}
-                    {list.map(p=>(<div key={p.id} onClick={()=>setCheckedAdd(prev=>({...prev,[p.id]:!prev[p.id]}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"0.5px solid #eee",cursor:"pointer"}}><input type="checkbox" checked={!!checkedAdd[p.id]} onChange={()=>{}} style={{width:16,height:16,pointerEvents:"none"}}/><div style={{flex:1}}><div style={{fontSize:14,fontWeight:500}}>{p.name}</div><div style={{fontSize:12,color:"#666"}}>{p.assets.join(" / ")} | 연 {p.annualRate}% | KI {p.knockIn}%</div></div></div>))}
+                    
+                    {/* [기능 개선] 모달창 상품 추가 시에도 행 전체 클릭 적용 */}
+                    {list.map(p=>(
+                      <div key={p.id} onClick={()=>setCheckedAdd(prev=>({...prev,[p.id]:!prev[p.id]}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"0.5px solid #eee",cursor:"pointer"}}>
+                        <input type="checkbox" checked={!!checkedAdd[p.id]} onChange={()=>{}} style={{width:16,height:16,pointerEvents:"none"}}/>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:14,fontWeight:500}}>{p.name}</div>
+                          <div style={{fontSize:12,color:"#666"}}>{p.assets.join(" / ")} | 연 {p.annualRate}% | KI {p.knockIn}%</div>
+                        </div>
+                      </div>
+                    ))}
                     {list.length===0&&<div style={{textAlign:"center",color:"#aaa",padding:20}}>추가할 수 있는 상품이 없습니다.</div>}
                     <button style={{...C.btnP,width:"100%",marginTop:16}} onClick={confirmAdd}>확인</button>
                   </>);
@@ -676,7 +689,6 @@
             </div>
           )}
 
-          {/* [복구됨] 상품 상세 정보 모달 */}
           {detailProduct&&(
             <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",zIndex:100}}>
               <div style={{background:"#fff",width:"100%",maxHeight:"85vh",overflowY:"auto",borderRadius:"16px 16px 0 0",padding:20}}>
