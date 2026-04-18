@@ -92,10 +92,9 @@
           brand = tokens[1];
         }
       }
-      return num ? `${brand} ${num}` : fullName;
+      return num ? `${brand} ${num}` : (fullName.length > 20 ? fullName.substring(0, 20) + "..." : fullName);
     }
 
-    // ★ [버그 해결] 만기 계산 로직 전면 수정
     function parseElsExcel(wb){
       const toJ=name=>{const s=wb.Sheets[name];return s?XLSX.utils.sheet_to_json(s,{defval:""}):[];};
       const products=toJ("Products"),underlyings=toJ("Underlyings"),schedules=toJ("Schedules");
@@ -116,18 +115,13 @@
         let earlyBarriers = earlyRows.map(s => parseNum(s.barrier_pct)).filter(n => n > 0);
         if(earlyBarriers.length === 0) earlyBarriers = (String(p.barriers||"")).split(/[-,]/).map(parseNum).filter(n=>n>0);
         
-        // ★ [핵심 수정] "주기" 관련 단어와 슬래시(/), 괄호(() 이후는 분석에서 제외하여 중복 합산 방지
         let maturityMonths = 36;
         const tm = String(p.term || "");
-        // "2년 / 4개월주기" -> "/" 앞의 "2년"만 떼어냅니다.
         const termPart = tm.split(/주기|[\/\(]/)[0].trim(); 
-        
         const my = termPart.match(/(\d+)\s*년/);
         const mm = termPart.match(/(\d+)\s*개월/);
-
         if (my) {
           maturityMonths = parseInt(my[1]) * 12;
-          // "2년 6개월" 처럼 순수하게 만기 기간에 포함된 개월수만 찾습니다.
           const extraMonthMatch = termPart.match(/년\s*(\d+)\s*개월/);
           if (extraMonthMatch) maturityMonths += parseInt(extraMonthMatch[1]);
         } else if (mm) {
@@ -212,7 +206,9 @@
       const [prices,setPrices]=useState({}); const [pricesLoading,setPricesLoading]=useState(false); const [lastUpdated,setLastUpdated]=useState(null);
       const [initPrices,setInitPrices]=useState({});
       const [editingTabIdx,setEditingTabIdx]=useState(null); const [tabNameInput,setTabNameInput]=useState("");
-      const [xlsxLoading,setXlsxLoading]=useState(false); const [xlsxStatus,setXlsxStatus]=null;
+      const [xlsxLoading,setXlsxLoading]=useState(false); 
+      // ★ 여기가 수정됨 (useState(null) 추가)
+      const [xlsxStatus,setXlsxStatus]=useState(null);
 
       const loadPricesFromDB = useCallback(async(token) => {
         setPricesLoading(true);
@@ -339,22 +335,22 @@
 
       async function handleXlsxUpload(e){
         const file=e.target.files[0];if(!file)return;
-        setXlsxLoading(true);
+        setXlsxLoading(true); setXlsxStatus(null);
         try{
           const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:"array",cellDates:true}); const parsed=parseElsExcel(wb);
-          if(parsed.length===0){setXlsxLoading(false);return;}
+          if(parsed.length===0){setXlsxLoading(false); return;}
           const token=session.access_token; const h={...sbH(token),"Prefer":"return=minimal"};
           async function dbFetch(url, method, body) { const res = await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined }); if (!res.ok) throw new Error("에러"); }
           await dbFetch(`${SB_URL}/rest/v1/schedules?id=gt.0`, "DELETE"); await dbFetch(`${SB_URL}/rest/v1/underlyings?id=gt.0`, "DELETE"); await dbFetch(`${SB_URL}/rest/v1/products?id=neq.NONE`, "DELETE");
-          const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knockIn,issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard}));
+          const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knock_in,issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard}));
           await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
           const underRows=parsed.flatMap(p=>p._underlyings.map(u=>{ const raw = String(u.asset_name).trim(); const norm = NORMALIZE_MAP[raw] || raw; return {product_id:p.id, asset_name:norm, initial_price:parseNum(u.initial_price)}; }));
           if(underRows.length>0) await dbFetch(`${SB_URL}/rest/v1/underlyings`, "POST", underRows);
           const rawS=XLSX.utils.sheet_to_json(wb.Sheets["Schedules"],{defval:""});
           const schedRows=rawS.map((s,i)=>({product_id:String(s.product_code),period:String(s.period),eval_date:formatExcelDate(s.eval_date),payment_date:formatExcelDate(s.payment_date),barrier_pct:parseNum(s.barrier_pct)||null,yield_pct:parseNum(s.yield_pct)||null,sort_order:i}));
           if(schedRows.length>0) await dbFetch(`${SB_URL}/rest/v1/schedules`, "POST", schedRows);
-          await loadDb(token);
-        }catch(err){}
+          setXlsxStatus({ok:true,msg:"✓ 저장 완료"}); await loadDb(token);
+        }catch(err){setXlsxStatus({ok:false,msg:"실패"});}
         setXlsxLoading(false);
       }
 
@@ -493,6 +489,7 @@
               <span style={{fontSize:15,fontWeight:500}}>엑셀로 ELS DB 업데이트</span>
               <p style={{fontSize:13,color:"#666",marginBottom:12}}>xlsx 파일을 업로드하여 상품 정보를 갱신합니다.</p>
               <label style={{...C.btnP,background:"#555",display:"inline-flex",alignItems:"center",gap:6,cursor:"pointer"}}>📂 엑셀 업로드<input type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleXlsxUpload}/></label>
+              {xlsxStatus&&<div style={{marginTop:12,padding:"10px 14px",borderRadius:8,background:xlsxStatus.ok?"#E1F5EE":"#FCEBEB",color:xlsxStatus.ok?"#0F6E56":"#DC2626",fontSize:13}}>{xlsxStatus.msg}</div>}
             </div>
           </div>
         </div>
@@ -527,7 +524,7 @@
             {mainTab==="list"&&(<>
               {!editMode ? (<>
                 <div style={{display:"flex",gap:10,marginBottom:12}}><div style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>{acc.name} 총 가입금액</div><div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.total.toLocaleString()}만</div></div><div style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>평균 수익률</div><div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.rate.toFixed(1)}%</div></div></div>
-                {myProducts.length===0 && <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>가입 상품이 없습니다.<br/>수정 버튼을 눌러 상품을 추가하세요.</div>}
+                {myProducts.length===0 && <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>가입 상품이 없습니다.</div>}
                 {myProducts.map(p=>{const st=calcStatus(p); return(<div key={p.id} style={{...C.card,cursor:"pointer"}} onClick={()=>setDetailProduct(p)}><div style={{display:"flex",justifyContent:"space-between"}}><div><span style={{fontSize:15,fontWeight:500}}>{getShortName(p.name)}</span><span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:11,fontWeight:500,background:st.sBg,color:st.sColor,marginLeft:6}}>{st.sText}</span></div><span style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>{(acc.products[p.id]||0).toLocaleString()}만원</span></div><div style={{fontSize:12,color:"#888",marginTop:6}}>{p.assets.join("/")} | 연 {p.annualRate}% | KI {p.knockIn}%</div></div>);})}
                 <button style={{...C.btnP,width:"100%",marginTop:10}} onClick={()=>setEditMode(true)}>수정</button>
               </>) : (<>
