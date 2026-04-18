@@ -55,18 +55,19 @@
     };
 
     function formatExcelDate(d){
-  if(!d) return null;
-  if(d instanceof Date) {
-    // SheetJS가 날짜를 UTC 기준으로 파싱하므로, 오차를 없애기 위해 UTC 메서드를 사용합니다.
-    const y = d.getUTCFullYear();
-    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(d.getUTCDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  }
-  const s = String(d).trim();
-  if(s.length >= 10) return s.slice(0, 10);
-  return null;
-}
+      if(!d) return null;
+      // 엑셀 셀 서식이 '날짜'일 경우 d는 Date 객체로 들어옵니다.
+      if(d instanceof Date) {
+        const y = d.getUTCFullYear();
+        const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`; // 시차 상관없이 엑셀에 적힌 날짜 그대로 반환
+      }
+      // 텍스트일 경우 처리
+      const s = String(d).trim();
+      if(s.length >= 10) return s.slice(0, 10);
+      return null;
+    }
 
     function parseNum(val) {
       if(typeof val === 'number') return val;
@@ -344,7 +345,7 @@
   setXlsxLoading(true); setXlsxStatus(null);
   try{
     const buf=await file.arrayBuffer(); 
-    const wb=XLSX.read(buf, {type: "array", cellDates: true}); 
+    const wb = XLSX.read(buf, {type: "array", cellDates: true});
     const parsed=parseElsExcel(wb);
     if(parsed.length===0){setXlsxStatus({ok:false,msg:"데이터 없음"});setXlsxLoading(false);return;}
     
