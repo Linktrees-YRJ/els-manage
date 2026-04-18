@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>ELS 관리 시스템 v2.2</title>
+  <title>ELS 관리 시스템 v2.5 (최종 통합본)</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -12,13 +12,13 @@
     *{box-sizing:border-box;margin:0;padding:0;}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;color:#111;}
     input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
-    .card{background:#fff;border:0.5px solid #e5e5e5;border-radius:12px;padding:16px 20px;margin-bottom:12px;}
+    .card{background:#fff;border:0.5px solid #e5e5e5;border-radius:12px;padding:16px 20px;margin-bottom:12px;box-shadow: 0 2px 4px rgba(0,0,0,0.02);}
     .btn-p{background:#185FA5;border:none;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:14px;color:#fff;font-weight:500;}
     .btn-s{background:#fff;border:0.5px solid #ccc;border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;}
     .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;margin-left:6px;}
     .data-table{width:100%;border-collapse:collapse;font-size:13px;}
     .data-table th, .data-table td{padding:12px;border-bottom:1px solid #eee;text-align:left;}
-    .data-table th{background:#f9f9f9;color:#666;}
+    .metric-card{background:#f8fafc;border-radius:10px;padding:15px;flex:1;text-align:center;border:1px solid #e2e8f0;}
   </style>
 </head>
 <body>
@@ -26,25 +26,15 @@
   <script type="text/babel">
     const { useState, useEffect, useCallback } = React;
 
-    // ★ [설정] 본인의 정보를 입력하세요
+    // ★ [설정] 본인의 정보로 채워주세요
     const SB_URL = "https://ignwckfmtkczginohdyl.supabase.co";
     const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlnbndja2ZtdGtjemdpbm9oZHlsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0MDU0MDQsImV4cCI6MjA5MTk4MTQwNH0.WpFZ7mfGeafwulE1Q64jJeALs9NDa32wyEtUl4pVYoA";
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbz8AZrPUFy55gwPvM8COb4GExsVtCgmdtXpmCn31BengXymAPz2lNvp0TZMcUtNvG0z/exec"; // 여기에 GAS 주소를 붙여넣으세요
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbz8AZrPUFy55gwPvM8COb4GExsVtCgmdtXpmCn31BengXymAPz2lNvp0TZMcUtNvG0z/exec"; 
     const ADMIN_EMAIL = "jaeyeoplee2@gmail.com";
 
     const sbH = (token) => ({ "Content-Type":"application/json", "apikey": SB_KEY, "Authorization": `Bearer ${token||SB_KEY}` });
 
-    const sb = {
-      async get(p, t){ const r=await fetch(`${SB_URL}/rest/v1/${p}`,{headers:{...sbH(t),"Prefer":"return=representation"}}); return r.json(); },
-      async post(p, b, t){ const r=await fetch(`${SB_URL}/rest/v1/${p}`,{method:"POST",headers:{...sbH(t),"Prefer":"return=representation"},body:JSON.stringify(b)}); return r.json(); },
-      async del(p, t){ const r=await fetch(`${SB_URL}/rest/v1/${p}`,{method:"DELETE",headers:sbH(t)}); return r.status; },
-      async signIn(email, password){
-        const r=await fetch(`${SB_URL}/auth/v1/token?grant_type=password`,{method:"POST",headers:{"Content-Type":"application/json","apikey":SB_KEY},body:JSON.stringify({email,password})});
-        return r.json();
-      }
-    };
-
-    // ★ [날짜 보정 완벽 해결] 한국 시간대 오차 수정
+    // 날짜 보정 (+9시간)
     function formatExcelDate(d){
       if(!d) return null;
       let date = d instanceof Date ? d : new Date(d);
@@ -67,64 +57,22 @@
       const tokens = fullName.split(/\s+/).filter(t => t.trim() !== "");
       let brand = tokens[0].replace(/증권|투자/g, '');
       if (tokens.length >= 2 && !/ELS|DLS|제?\d+회/.test(tokens[1])) brand = tokens[1];
-      return num ? `${brand} ${num}` : fullName;
+      return num ? `${brand} ${num}` : (fullName.length > 15 ? fullName.substring(0, 15) + "..." : fullName);
     }
 
-    function parseElsExcel(wb){
-      const toJ=n=>{const s=wb.Sheets[n];return s?XLSX.utils.sheet_to_json(s,{defval:""}):[];};
-      const products=toJ("Products"), unders=toJ("Underlyings"), scheds=toJ("Schedules");
-      return products.map(p=>{
-        const code=String(p.product_code);
-        const myU = unders.filter(u=>String(u.product_code)===code);
-        const myS = scheds.filter(s=>String(s.product_code)===code);
-        
-        let maturityMonths = 36;
-        const tm = String(p.term || "");
-        const termPart = tm.split(/주기|[\/\(]/)[0].trim();
-        const my = termPart.match(/(\d+)\s*년/);
-        if (my) maturityMonths = parseInt(my[1]) * 12;
-        const extraMm = termPart.match(/년\s*(\d+)\s*개월/);
-        if (extraMm) maturityMonths += parseInt(extraMm[1]);
-
-        const initialPrices={};
-        myU.forEach(u=>{ initialPrices[u.asset_name.trim()] = parseNum(u.initial_price); });
-
-        return {
-          id: code,
-          name: String(p.full_name || code),
-          assets: myU.map(u=>u.asset_name.trim()),
-          annualRate: parseNum(p.max_annual_yield),
-          maturityMonths,
-          knockIn: parseNum(p.ki_level || p.ki_barrier || p.knock_in || 0), // 낙인 값 추출
-          issueDate: formatExcelDate(p.issue_date),
-          maturityDate: formatExcelDate(p.maturity_date),
-          initialPrices,
-          evaluationDates: myS.filter(s=>s.period!=="만기").map(s=>[formatExcelDate(s.eval_date), formatExcelDate(s.payment_date)]),
-          earlyBarriers: myS.filter(s=>s.period!=="만기").map(s=>parseNum(s.barrier_pct)),
-          isLizard: String(p.special_note || "").includes("리자드"),
-          lizardBarrier1: parseNum(p.lizard_barrier_1 || 0),
-          lizardBarrier2: parseNum(p.lizard_barrier_2 || 0)
-        };
-      });
-    }
-
-    const TICKER_MAP = {
-      "마이크론":"MU", "팔란티어":"PLTR", "테슬라":"TSLA", "인텔":"INTC", "엔비디아":"NVDA", "브로드컴":"AVGO", "애플":"AAPL", "AMD":"AMD",
-      "S&P500":"^GSPC", "NASDAQ100":"^NDX", "유로스톡스50":"^STOXX50E", "KOSPI200":"^KS200", "HSCEI":"^HSCE", "니케이225":"^N225"
-    };
-
+    // 시각화 바 컴포넌트
     function RatioBar({ratio, init, cur, barrier, knockIn}){
-      if(!init) return <div style={{fontSize:11,color:"#999"}}>기준가 정보 없음</div>;
+      if(!init || init <= 0) return <div style={{fontSize:11,color:"#999"}}>기준가 정보 없음</div>;
       const pct=v=>Math.max(0,Math.min(100,(v/150)*100));
-      const curColor=ratio < knockIn ? "#DC2626" : ratio < barrier ? "#D97706" : "#0F6E56";
+      const curColor = ratio < knockIn ? "#DC2626" : ratio < barrier ? "#D97706" : "#0F6E56";
       return (
         <div style={{margin:"15px 0 25px"}}>
-          <div style={{position:"relative",height:6,background:"#eee",borderRadius:3}}>
-            <div style={{position:"absolute",left:0,width:`${pct(knockIn)}%`,height:"100%",background:"rgba(220,38,38,0.1)",borderRadius:"3px 0 0 3px"}}/>
-            <div style={{position:"absolute",left:`${pct(knockIn)}%`,top:-4,bottom:-4,width:2,background:"#DC2626"}}/>
-            <div style={{position:"absolute",left:`${pct(barrier)}%`,top:-4,bottom:-4,width:2,background:"#D97706"}}/>
-            <div style={{position:"absolute",left:`${pct(ratio||0)}%`,top:"50%",transform:"translate(-50%,-50%)",width:12,height:12,background:curColor,borderRadius:"50%",border:"2px solid #fff",boxShadow:"0 2px 4px rgba(0,0,0,0.2)"}}/>
-            <div style={{position:"absolute",left:`${pct(ratio||0)}%`,top:-18,transform:"translateX(-50%)",fontSize:10,fontWeight:700,color:curColor}}>{ratio?ratio.toFixed(1):"0.0"}%</div>
+          <div style={{position:"relative",height:8,background:"#f1f5f9",borderRadius:4}}>
+            <div style={{position:"absolute",left:0,width:`${pct(knockIn)}%`,height:"100%",background:"rgba(220,38,38,0.1)",borderRadius:"4px 0 0 4px"}}/>
+            <div style={{position:"absolute",left:`${pct(knockIn)}%`,top:-4,bottom:-4,width:2,background:"#DC2626",zIndex:2}}/>
+            <div style={{position:"absolute",left:`${pct(barrier)}%`,top:-4,bottom:-4,width:2,background:"#D97706",zIndex:2}}/>
+            <div style={{position:"absolute",left:`${pct(ratio||0)}%`,top:"50%",transform:"translate(-50%,-50%)",width:14,height:14,background:curColor,borderRadius:"50%",border:"2.5px solid #fff",boxShadow:"0 2px 4px rgba(0,0,0,0.2)",zIndex:3}}/>
+            <div style={{position:"absolute",left:`${pct(ratio||0)}%`,top:-18,transform:"translateX(-50%)",fontSize:11,fontWeight:700,color:curColor}}>{ratio?ratio.toFixed(1):"0.0"}%</div>
           </div>
         </div>
       );
@@ -140,13 +88,61 @@
       const [prices, setPrices] = useState({});
       const [mainTab, setMainTab] = useState("list");
       const [detailProduct, setDetailProduct] = useState(null);
+      const [dashView, setDashView] = useState("current"); // current or all
 
-      // ★ [상환 조건 검토 로직] 회원님 요청사항 반영
+      // 데이터 호출
+      const loadDb = useCallback(async(token)=>{
+        const [prods, unders, scheds] = await Promise.all([
+          fetch(`${SB_URL}/rest/v1/products?order=id`, {headers: sbH(token)}).then(r=>r.json()),
+          fetch(`${SB_URL}/rest/v1/underlyings`, {headers: sbH(token)}).then(r=>r.json()),
+          fetch(`${SB_URL}/rest/v1/schedules?order=sort_order`, {headers: sbH(token)}).then(r=>r.json())
+        ]);
+        if(Array.isArray(prods)){
+          setDb(prods.map(p => ({
+            ...p,
+            assets: unders.filter(u=>u.product_id===p.id).map(u=>u.asset_name),
+            initialPrices: Object.fromEntries(unders.filter(u=>u.product_id===p.id).map(u=>[u.asset_name, u.initial_price])),
+            evaluationDates: scheds.filter(s=>s.product_id===p.id && s.period!=="만기").map(s=>[s.eval_date, s.payment_date]),
+            earlyBarriers: scheds.filter(s=>s.product_id===p.id && s.period!=="만기").map(s=>s.barrier_pct)
+          })));
+        }
+      },[]);
+
+      const loadAccounts = useCallback(async(t, uid)=>{
+        const accs = await fetch(`${SB_URL}/rest/v1/accounts?select=*,account_products(*)&user_id=eq.${uid}&order=sort_order`, {headers: sbH(t)}).then(r=>r.json());
+        if(accs.length > 0) setAccounts(accs.map(a=>({id: a.id, name: a.name, products: Object.fromEntries(a.account_products.map(ap=>[ap.product_id, ap.amount]))})));
+        else setAccounts([{id: "temp", name: "기본계좌", products: {}}]);
+      },[]);
+
+      const updatePrices = async () => {
+        const uniqueAssets = [...new Set(db.flatMap(p => p.assets))];
+        const symbols = uniqueAssets.map(a => TICKER_MAP[a] || a).join(',');
+        try {
+          const res = await fetch(`${GAS_URL}?symbols=${symbols}`).then(r=>r.json());
+          if(res.prices) setPrices(res.prices);
+        } catch(e) { console.error("시세 호출 실패"); }
+      };
+
+      const TICKER_MAP = { "테슬라":"TSLA", "팔란티어":"PLTR", "엔비디아":"NVDA", "애플":"AAPL", "마이크론":"MU", "S&P500":"^GSPC", "NASDAQ100":"^NDX" };
+
+      const handleLogin = async() => {
+        const r = await fetch(`${SB_URL}/auth/v1/token?grant_type=password`, {
+          method: "POST",
+          headers: {"Content-Type":"application/json", "apikey":SB_KEY},
+          body: JSON.stringify({email: email.includes('@')?email:email+"@els.com", password: pw})
+        }).then(r=>r.json());
+        if(r.access_token){ setSession(r); setScreen("main"); loadDb(r.access_token); loadAccounts(r.access_token, r.user.id); }
+      };
+
+      const curAcc = accounts[activeTab] || {products:{}};
+      const myProds = dashView === "current" ? db.filter(p => (curAcc.products[p.id]||0) > 0) : db.filter(p => accounts.some(a => (a.products[p.id]||0) > 0));
+
       function calcStatus(p){
-        const nextIdx = p.evaluationDates.findIndex(([d]) => new Date(d) >= new Date(TODAY));
+        const TODAY = new Date();
+        const nextIdx = p.evaluationDates.findIndex(([d]) => new Date(d) >= TODAY);
         const curIdx = nextIdx === -1 ? p.earlyBarriers.length - 1 : nextIdx;
         const barrier = p.earlyBarriers[curIdx] || 85;
-        
+
         const assetResults = p.assets.map(a => {
           const init = p.initialPrices[a] || 0;
           const cur = prices[a] || null;
@@ -156,121 +152,102 @@
 
         const hasPrice = assetResults.every(r => r.ratio !== null);
         const allAboveBarrier = hasPrice && assetResults.every(r => r.ratio >= barrier);
-        
-        // 리자드 상환: 3차 평가(curIdx=2) 시점에 조기상환은 안됐으나 리자드 배리어를 지켰을 때
         let isLizardRedeem = false;
-        if (p.isLizard && curIdx === 2 && !allAboveBarrier && hasPrice) {
-          if (assetResults.every(r => r.ratio >= p.lizardBarrier1)) isLizardRedeem = true;
+        if (p.is_lizard && curIdx === 2 && !allAboveBarrier && hasPrice) {
+          if (assetResults.every(r => r.ratio >= (p.lizard_barrier_1 || 55))) isLizardRedeem = true;
         }
 
-        const isKiHit = hasPrice && assetResults.some(r => r.ratio < p.knockIn);
+        const isKiHit = hasPrice && assetResults.some(r => r.ratio < p.knock_in);
 
-        let st = { text: "시세 대기", bg: "#f5f5f5", color: "#aaa" };
+        let st = { text: "시세 대기", bg: "#f1f5f9", color: "#64748b" };
         if (hasPrice) {
-          if (allAboveBarrier) st = { text: "조기상환 가능", bg: "#E1F5EE", color: "#0F6E56" };
-          else if (isLizardRedeem) st = { text: "리자드 상환", bg: "#F3E8FF", color: "#7E22CE" };
-          else if (isKiHit) st = { text: "낙인터치(손실위험)", bg: "#FEE2E2", color: "#DC2626" };
-          else st = { text: "관찰 중", bg: "#FFF4E5", color: "#D97706" };
+          if (allAboveBarrier) st = { text: "조기상환 가능", bg: "#dcfce7", color: "#166534" };
+          else if (isLizardRedeem) st = { text: "리자드 상환", bg: "#f3e8ff", color: "#7e22ce" };
+          else if (isKiHit) st = { text: "낙인터치 경고", bg: "#fee2e2", color: "#991b1b" };
+          else st = { text: "관찰 중", bg: "#fef9c3", color: "#854d0e" };
         }
-        return { assetResults, st, barrier, nextDate: p.evaluationDates[curIdx]?.[0] };
+        return { st, assetResults, barrier, nextDate: p.evaluationDates[curIdx]?.[0] };
       }
-
-      const loadDb = useCallback(async(token)=>{
-        const [prods, unders, scheds] = await Promise.all([
-          sb.get("products?order=id", token), sb.get("underlyings", token), sb.get("schedules?order=sort_order", token)
-        ]);
-        if(Array.isArray(prods)){
-          setDb(prods.map(p => ({
-            id:p.id, name:p.name, assets:unders.filter(u=>u.product_id===p.id).map(u=>u.asset_name),
-            annualRate:p.annual_rate, maturityMonths:p.maturity_months, knockIn:p.knock_in,
-            issueDate:p.issue_date, maturityDate:p.maturity_date, isLizard:p.is_lizard,
-            lizardBarrier1:p.lizard_barrier_1, lizardBarrier2:p.lizard_barrier_2,
-            initialPrices: Object.fromEntries(unders.filter(u=>u.product_id===p.id).map(u=>[u.asset_name, u.initial_price])),
-            evaluationDates: scheds.filter(s=>s.product_id===p.id&&s.period!=="만기").map(s=>[s.eval_date, s.payment_date]),
-            earlyBarriers: scheds.filter(s=>s.product_id===p.id&&s.period!=="만기").map(s=>s.barrier_pct)
-          })));
-        }
-      },[]);
-
-      const loadAccounts = useCallback(async(t, uid)=>{
-        const accs = await sb.get(`accounts?select=*,account_products(*)&user_id=eq.${uid}&order=sort_order`, t);
-        if(accs.length > 0) setAccounts(accs.map(a=>({id:a.id, name:a.name, products:Object.fromEntries(a.account_products.map(ap=>[ap.product_id, ap.amount]))})));
-      },[]);
-
-      const handleLogin = async() => {
-        const data = await sb.signIn(email.includes('@')?email:email+"@els.com", pw);
-        if(data.access_token){ setSession(data); setScreen("main"); loadDb(data.access_token); loadAccounts(data.access_token, data.user.id); }
-      };
-
-      const TODAY = "2026-04-18";
-      const curAcc = accounts[activeTab] || {products:{}};
-      const myProds = db.filter(p => (curAcc.products[p.id]||0) > 0);
 
       if(screen === "login") return (
         <div style={{display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", background:"#185FA5"}}>
-          <div style={{background:"#fff", padding:30, borderRadius:16, width:320, textAlign:"center"}}>
-            <h2 style={{marginBottom:20}}>ELS Tracker</h2>
-            <input style={{width:"100%", padding:12, marginBottom:10, border:"1px solid #ddd", borderRadius:8}} placeholder="아이디" value={email} onChange={e=>setEmail(e.target.value)}/>
-            <input style={{width:"100%", padding:12, marginBottom:20, border:"1px solid #ddd", borderRadius:8}} type="password" placeholder="비밀번호" value={pw} onChange={e=>setPw(e.target.value)}/>
-            <button className="btn-p" style={{width:"100%"}} onClick={handleLogin}>로그인</button>
+          <div style={{background:"#fff", padding:40, borderRadius:20, width:350, textAlign:"center", boxShadow:"0 10px 25px rgba(0,0,0,0.2)"}}>
+            <h2 style={{marginBottom:30, color:"#1e293b"}}>ELS Asset Tracker</h2>
+            <input style={{width:"100%", padding:14, marginBottom:12, border:"1px solid #e2e8f0", borderRadius:10}} placeholder="아이디" value={email} onChange={e=>setEmail(e.target.value)}/>
+            <input style={{width:"100%", padding:14, marginBottom:25, border:"1px solid #e2e8f0", borderRadius:10}} type="password" placeholder="비밀번호" value={pw} onChange={e=>setPw(e.target.value)}/>
+            <button className="btn-p" style={{width:"100%", padding:14, fontSize:16}} onClick={handleLogin}>로그인하기</button>
           </div>
         </div>
       );
 
       return (
-        <div style={{maxWidth:600, margin:"0 auto", padding:16, minHeight:"100vh", background:"#f5f5f5"}}>
+        <div style={{maxWidth:600, margin:"0 auto", padding:16, background:"#f8fafc", minHeight:"100vh"}}>
           <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20}}>
-            <h3 style={{color:"#185FA5"}}>ELS 자산현황</h3>
+            <h3 style={{color:"#1e293b", fontSize:20}}>ELS 자산 통합 관리</h3>
             <button className="btn-s" onClick={()=>setScreen("login")}>로그아웃</button>
           </div>
 
-          <div style={{display:"flex", gap:8, overflowX:"auto", marginBottom:15}}>
+          <div style={{display:"flex", gap:10, overflowX:"auto", marginBottom:20, paddingBottom:5}}>
             {accounts.map((a,i)=>(
-              <button key={i} onClick={()=>setActiveTab(i)} style={{padding:"8px 16px", borderRadius:20, border:"none", background:activeTab===i?"#185FA5":"#fff", color:activeTab===i?"#fff":"#666", whiteSpace:"nowrap", fontSize:13}}>{a.name}</button>
+              <button key={i} onClick={()=>setActiveTab(i)} style={{padding:"10px 18px", borderRadius:25, border:"none", background:activeTab===i?"#185FA5":"#fff", color:activeTab===i?"#fff":"#64748b", whiteSpace:"nowrap", fontSize:14, fontWeight:600, boxShadow:"0 2px 4px rgba(0,0,0,0.05)"}}>{a.name}</button>
             ))}
           </div>
 
-          <div style={{display:"flex", background:"#fff", borderRadius:10, marginBottom:16, padding:4}}>
+          <div style={{display:"flex", background:"#fff", borderRadius:12, marginBottom:20, padding:5, boxShadow:"0 2px 4px rgba(0,0,0,0.05)"}}>
             {["list","dashboard"].map(t=>(
-              <button key={t} onClick={()=>setMainTab(t)} style={{flex:1, border:"none", padding:12, borderRadius:8, background:mainTab===t?"#f5f7fa":"#fff", fontWeight:mainTab===t?700:400, fontSize:14}}>{t==="list"?"상품목록":"상황판"}</button>
+              <button key={t} onClick={()=>setMainTab(t)} style={{flex:1, border:"none", padding:12, borderRadius:8, background:mainTab===t?"#f1f5f9":"#fff", fontWeight:mainTab===t?700:400, fontSize:15, transition:"0.2s"}}>{t==="list"?"상품 목록":"종합 현황판"}</button>
             ))}
           </div>
 
           {mainTab === "list" ? (
             <div>
-              {myProds.map(p=>{
+              <div style={{display:"flex", gap:10, marginBottom:15}}>
+                <div className="metric-card">
+                  <div style={{fontSize:12, color:"#64748b", marginBottom:5}}>현재 계좌 총액</div>
+                  <div style={{fontSize:18, fontWeight:700}}>{Object.values(curAcc.products).reduce((a,b)=>a+b, 0).toLocaleString()}만</div>
+                </div>
+                <button className="btn-p" onClick={updatePrices} style={{flex:1}}>시세 업데이트</button>
+              </div>
+              {myProds.map(p => {
                 const {st} = calcStatus(p);
                 return (
-                  <div key={p.id} className="card" onClick={()=>setDetailProduct(p)} style={{cursor:"pointer"}}>
-                    <div style={{display:"flex", justifyContent:"space-between"}}>
+                  <div key={p.id} className="card" onClick={()=>setDetailProduct(p)} style={{cursor:"pointer", transition:"0.2s"}}>
+                    <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
                       <div>
-                        <span style={{fontWeight:700, fontSize:15}}>{getShortName(p.name)}</span>
+                        <span style={{fontWeight:700, fontSize:16, color:"#1e293b"}}>{getShortName(p.name)}</span>
                         <span className="tag" style={{background:st.bg, color:st.color}}>{st.text}</span>
                       </div>
-                      <span style={{color:"#185FA5", fontWeight:700}}>{(curAcc.products[p.id]||0).toLocaleString()}만</span>
+                      <span style={{color:"#185FA5", fontWeight:800, fontSize:16}}>{(curAcc.products[p.id]||0).toLocaleString()}만원</span>
                     </div>
-                    <div style={{fontSize:12, color:"#888", marginTop:8}}>{p.assets.join(" / ")} | 연 {p.annualRate}% | KI {p.knockIn}%</div>
+                    <div style={{fontSize:12, color:"#94a3b8", marginTop:8}}>{p.assets.join(" / ")} | 연 {p.annual_rate}% | KI {p.knock_in}%</div>
                   </div>
                 );
               })}
             </div>
           ) : (
             <div>
+              <div style={{display:"flex", gap:10, marginBottom:20}}>
+                <button onClick={()=>setDashView("current")} style={{flex:1, padding:10, borderRadius:8, border:"1px solid #185FA5", background:dashView==="current"?"#185FA5":"#fff", color:dashView==="current"?"#fff":"#185FA5", fontWeight:700}}>현재 계좌</button>
+                <button onClick={()=>setDashView("all")} style={{flex:1, padding:10, borderRadius:8, border:"1px solid #185FA5", background:dashView==="all"?"#185FA5":"#fff", color:dashView==="all"?"#fff":"#185FA5", fontWeight:700}}>전체 통합</button>
+              </div>
               {myProds.map(p => {
                 const {st, assetResults, barrier, nextDate} = calcStatus(p);
                 return (
                   <div key={p.id} className="card">
-                    <div style={{display:"flex", justifyContent:"space-between", marginBottom:15}}>
+                    <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:15}}>
                       <div>
-                        <div style={{fontWeight:700}}>{getShortName(p.name)}</div>
-                        <div style={{fontSize:11, color:"#999"}}>평가: {nextDate} ({barrier}%)</div>
+                        <div style={{fontWeight:700, fontSize:15}}>{getShortName(p.name)}</div>
+                        <div style={{fontSize:11, color:"#94a3b8", marginTop:2}}>차기 평가: {nextDate} ({barrier}%)</div>
                       </div>
-                      <span className="tag" style={{background:st.bg, color:st.color, height:"fit-content", padding:"4px 10px"}}>{st.text}</span>
+                      <span className="tag" style={{background:st.bg, color:st.color, padding:"5px 10px", fontSize:12}}>{st.text}</span>
                     </div>
                     {assetResults.map(r => (
                       <div key={r.asset} style={{marginBottom:10}}>
-                        <div style={{display:"flex", justifyContent:"space-between", fontSize:12}}><span>{r.asset}</span><span>{r.cur||"-"}</span></div>
-                        <RatioBar ratio={r.ratio} init={r.init} cur={r.cur} barrier={barrier} knockIn={p.knockIn}/>
+                        <div style={{display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:5}}>
+                          <span style={{fontWeight:500}}>{r.asset}</span>
+                          <span style={{color:"#64748b"}}>{r.cur ? r.cur.toLocaleString() : "-"}</span>
+                        </div>
+                        <RatioBar ratio={r.ratio} init={r.init} cur={r.cur} barrier={barrier} knockIn={p.knock_in}/>
                       </div>
                     ))}
                   </div>
@@ -280,28 +257,31 @@
           )}
 
           {detailProduct && (
-            <div style={{position:"fixed", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"flex-end", zIndex:1000}}>
-              <div style={{background:"#fff", width:"100%", borderTopLeftRadius:20, borderTopRightRadius:20, padding:25, maxHeight:"85vh", overflowY:"auto"}}>
-                <div style={{display:"flex", justifyContent:"space-between", marginBottom:20}}>
-                  <h3 style={{fontSize:17}}>{detailProduct.name}</h3>
-                  <button onClick={()=>setDetailProduct(null)} style={{border:"none", background:"none", fontSize:20}}>✕</button>
+            <div style={{position:"fixed", top:0, left:0, right:0, bottom:0, background:"rgba(15, 23, 42, 0.7)", display:"flex", alignItems:"flex-end", zIndex:1000}}>
+              <div style={{background:"#fff", width:"100%", borderTopLeftRadius:24, borderTopRightRadius:24, padding:30, maxHeight:"85vh", overflowY:"auto"}}>
+                <div style={{display:"flex", justifyContent:"space-between", marginBottom:25}}>
+                  <h3 style={{fontSize:19, color:"#1e293b"}}>{detailProduct.name}</h3>
+                  <button onClick={()=>setDetailProduct(null)} style={{border:"none", background:"none", fontSize:24, color:"#94a3b8"}}>✕</button>
                 </div>
-                <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20}}>
-                  <div style={{background:"#f9f9f9", padding:12, borderRadius:8}}><div style={{fontSize:11, color:"#999"}}>낙인배리어</div><div style={{fontWeight:700}}>{detailProduct.knockIn}%</div></div>
-                  <div style={{background:"#f9f9f9", padding:12, borderRadius:8}}><div style={{fontSize:11, color:"#999"}}>연 수익률</div><div style={{fontWeight:700, color:"#185FA5"}}>{detailProduct.annualRate}%</div></div>
-                  <div style={{background:"#f9f9f9", padding:12, borderRadius:8}}><div style={{fontSize:11, color:"#999"}}>발행일</div><div style={{fontWeight:700}}>{detailProduct.issueDate}</div></div>
-                  <div style={{background:"#f9f9f9", padding:12, borderRadius:8}}><div style={{fontSize:11, color:"#999"}}>만기일</div><div style={{fontWeight:700}}>{detailProduct.maturityDate}</div></div>
+                <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:25}}>
+                  <div style={{background:"#f8fafc", padding:15, borderRadius:12, border:"1px solid #e2e8f0"}}><div style={{fontSize:11, color:"#64748b"}}>낙인 배리어</div><div style={{fontWeight:700, fontSize:16}}>{detailProduct.knock_in}%</div></div>
+                  <div style={{background:"#f8fafc", padding:15, borderRadius:12, border:"1px solid #e2e8f0"}}><div style={{fontSize:11, color:"#64748b"}}>연 수익률</div><div style={{fontWeight:700, fontSize:16, color:"#185FA5"}}>{detailProduct.annual_rate}%</div></div>
+                  <div style={{background:"#f8fafc", padding:15, borderRadius:12, border:"1px solid #e2e8f0"}}><div style={{fontSize:11, color:"#64748b"}}>발행일</div><div style={{fontWeight:700, fontSize:14}}>{detailProduct.issue_date}</div></div>
+                  <div style={{background:"#f8fafc", padding:15, borderRadius:12, border:"1px solid #e2e8f0"}}><div style={{fontSize:11, color:"#64748b"}}>만기일</div><div style={{fontWeight:700, fontSize:14}}>{detailProduct.maturity_date}</div></div>
                 </div>
-                {detailProduct.isLizard && (
-                  <div style={{background:"#FFF0F6", padding:12, borderRadius:8, marginBottom:20, border:"0.5px solid #FFADD2"}}>
-                    <div style={{fontSize:12, color:"#C41D7F", fontWeight:700}}>🦎 리자드 조건</div>
-                    <div style={{fontSize:13, marginTop:5}}>1차 리자드 배리어: {detailProduct.lizardBarrier1}% / 2차: {detailProduct.lizardBarrier2}%</div>
+                
+                {detailProduct.is_lizard && (
+                  <div style={{background:"#faf5ff", padding:15, borderRadius:12, marginBottom:25, border:"1px solid #e9d5ff"}}>
+                    <div style={{fontSize:13, color:"#7e22ce", fontWeight:700, display:"flex", alignItems:"center", gap:5}}>🦎 리자드 상환 조건</div>
+                    <div style={{fontSize:14, marginTop:8, color:"#581c87"}}>1차 리자드: {detailProduct.lizard_barrier_1}% | 2차: {detailProduct.lizard_barrier_2}%</div>
+                    <div style={{fontSize:11, color:"#9333ea", marginTop:5}}>* 3차 평가 시 배리어 터치 없으면 조기 상환</div>
                   </div>
                 )}
-                <div style={{fontWeight:700, marginBottom:10, fontSize:14}}>조기상환 일정</div>
+
+                <div style={{fontWeight:700, marginBottom:12, fontSize:15, color:"#1e293b"}}>조기상환 상세 일정</div>
                 <table className="data-table">
-                  <thead><tr><th>차수</th><th>평가일</th><th>배리어</th></tr></thead>
-                  <tbody>{detailProduct.evaluationDates.map(([d,p],i)=>(<tr key={i}><td>{i+1}차</td><td>{d}</td><td>{detailProduct.earlyBarriers[i]}%</td></tr>))}</tbody>
+                  <thead><tr style={{textAlign:"left"}}><th style={{color:"#64748b"}}>차수</th><th style={{color:"#64748b"}}>평가일</th><th style={{color:"#64748b"}}>배리어</th></tr></thead>
+                  <tbody>{detailProduct.evaluationDates.map(([d,p],i)=>(<tr key={i}><td style={{fontWeight:600}}>{i+1}차</td><td>{d}</td><td style={{fontWeight:700, color:"#185FA5"}}>{detailProduct.earlyBarriers[i]}%</td></tr>))}</tbody>
                 </table>
               </div>
             </div>
