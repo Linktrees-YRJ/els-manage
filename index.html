@@ -780,7 +780,23 @@ let sText = ""; let sBg = ""; let sColor = "";
                     <tbody>
                       {filteredDashProducts.map(({p, st}) => (
                         <tr key={p.id}>
-                          <td style={{fontWeight:500}}>{getShortName(p.name)}{dashView==="all"&&(<div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:6}}>{accounts.filter(a=>(a.products[p.id]||0)>0).map(a=>(<span key={a.id} style={{fontSize:10,padding:"2px 5px",background:"#E2E8F0",color:"#475569",borderRadius:4}}>{a.name}</span>))}</div>)}</td>
+                          <td style={{fontWeight:500}}>
+  {getShortName(p.name)}
+  {(p.is_lizard || p.isLizard) && (
+    <span style={{
+      fontSize: 10, color: '#EF4444', border: '1px solid #EF4444', 
+      borderRadius: 4, padding: '1px 4px', fontWeight: 'bold', 
+      marginLeft: 6, verticalAlign: 'middle'
+    }}>리자드</span>
+  )}
+  {dashView==="all" && (
+    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:6}}>
+      {accounts.filter(a=>(a.products[p.id]||0)>0).map(a=>(
+        <span key={a.id} style={{fontSize:10,padding:"2px 5px",background:"#E2E8F0",color:"#475569",borderRadius:4}}>{a.name}</span>
+      ))}
+    </div>
+  )}
+</td>
                           <td>{st.next ? <span style={{color:st.next.days<=14?"#BA7517":undefined}}>{fmt(st.next.date)}<br/><small>D-{st.next.days}</small></span> : "—"}</td>
                           <td>{st.assetStatuses.map(as => (<div key={as.asset} style={{marginBottom:6}}><div>{as.asset}</div><div style={{fontWeight:500, color:as.ratio&&as.ratio>=st.barrier?"#0F6E56":"#DC2626"}}>{as.cur?as.cur.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}):"—"}<span style={{fontSize:11,marginLeft:4}}>({as.ratio?`${as.ratio.toFixed(1)}%`:"—"})</span></div></div>))}</td>
                           <td><div style={{marginBottom:6,fontWeight:500}}>{st.barrier}% / {p.knockIn}%</div>{st.assetStatuses.map(as => {const bP=as.init?(as.init*st.barrier/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}):"—"; const kP=as.init?(as.init*p.knockIn/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}):"—"; return (<div key={as.asset} style={{fontSize:11,color:'#888',marginBottom:2}}>{as.asset}: {bP} / {kP}</div>);})}</td>
