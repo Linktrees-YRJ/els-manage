@@ -299,42 +299,7 @@
           _underlyings: assets 
         };
       });
-    // --- 테스트용 샘플 데이터 시작 ---
-const testAssetName = "KOSPI200"; // 현재 시세가 불러와져 있는 자산 이름을 적어주세요.
-
-const sampleProducts = [
-  {
-    id: "sample-ki-safe",
-    name: "[테스트] 낙인터치 상환가능 (보라)",
-    assets: [testAssetName],
-    annualRate: 10,
-    is_ki_hit: true, 
-    is_lizard: false,
-    // 기준가를 현재가보다 훨씬 낮게 설정 -> 100% 이상으로 나옴
-    _underlyings: [{ asset_name: testAssetName, initial_price: 10 }], 
-    initialPrices: { [testAssetName]: 10 }
-  },
-  {
-    id: "sample-ki-danger",
-    name: "[테스트] 낙인터치 손실위험 (빨강)",
-    assets: [testAssetName],
-    annualRate: 12,
-    is_ki_hit: true, 
-    is_lizard: false,
-    // 기준가를 현재가보다 훨씬 높게 설정 -> 85% 미만으로 나옴
-    _underlyings: [{ asset_name: testAssetName, initial_price: 999999 }], 
-    initialPrices: { [testAssetName]: 999999 }
-  }
-];
-
-const sampleSchedules = [
-  { product_id: "sample-ki-safe", eval_date: "2026-12-31", barrier_pct: 85, period: "1" },
-  { product_id: "sample-ki-danger", eval_date: "2026-12-31", barrier_pct: 85, period: "1" }
-];
-
-mappedDb.push(...sampleProducts);
-setSchedules([...scheds, ...sampleSchedules]);
-// --- 테스트용 샘플 데이터 끝 ---
+ 
       setDb(mappedDb);
     }
   } catch (e) {
