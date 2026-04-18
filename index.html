@@ -299,32 +299,39 @@
           _underlyings: assets 
         };
       });
-      // --- 테스트용 샘플 데이터 시작 ---
+     // --- 테스트용 샘플 데이터 시작 ---
 const sampleProducts = [
   {
     id: "sample-ki-safe",
     name: "[테스트] 낙인터치 상환가능 상품",
     assets: ["KOSPI200"],
     annualRate: 10,
-    is_ki_hit: true, // 낙인터치 발생 시뮬레이션
+    is_ki_hit: true, 
     is_lizard: false,
-    _underlyings: [{ asset_name: "KOSPI200", initial_price: 100 }],
-    initialPrices: { "KOSPI200": 100 }
+    _underlyings: [{ asset_name: "KOSPI200", initial_price: 10 }], // 기준가를 아주 낮게 설정 (무조건 상환가능하게)
+    initialPrices: { "KOSPI200": 10 }
   },
   {
     id: "sample-ki-danger",
     name: "[테스트] 낙인터치 손실위험 상품",
     assets: ["S&P500"],
     annualRate: 12,
-    is_ki_hit: true, // 낙인터치 발생 시뮬레이션
+    is_ki_hit: true, 
     is_lizard: false,
-    _underlyings: [{ asset_name: "S&P500", initial_price: 100 }],
-    initialPrices: { "S&P500": 100 }
+    _underlyings: [{ asset_name: "S&P500", initial_price: 1000000 }], // 기준가를 아주 높게 설정 (무조건 손실위험하게)
+    initialPrices: { "S&P500": 1000000 }
   }
 ];
 
-// 기존에 가져온 상품 목록 뒤에 샘플 상품을 합칩니다.
+// 가짜 스케줄 생성 (이게 있어야 '데이터 없음'이 안 뜹니다)
+const sampleSchedules = [
+  { product_id: "sample-ki-safe", eval_date: "2026-12-31", barrier_pct: 85, period: "1" },
+  { product_id: "sample-ki-danger", eval_date: "2026-12-31", barrier_pct: 85, period: "1" }
+];
+
+// 기존 데이터에 합치기
 mappedDb.push(...sampleProducts);
+setSchedules([...scheds, ...sampleSchedules]); // scheds는 fetch로 가져온 원래 데이터들입니다.
 // --- 테스트용 샘플 데이터 끝 ---
       setDb(mappedDb);
     }
