@@ -250,23 +250,53 @@
         setPricesLoading(false);
       }, []);
 
-      const loadDb=useCallback(async(token)=>{
-        setDbLoading(true);
-        try{
-          const [prods,unders,scheds]=await Promise.all([
-            sb.get("products?select=*&order=id",token), sb.get("underlyings?select=*",token), sb.get("schedules?select=*&order=product_id,sort_order",token)
-          ]);
-          if(Array.isArray(prods)){
-            setDb(prods.map(p=>{
-              const assets=unders.filter(u=>u.product_id===p.id); const assetNames=assets.map(a=>a.asset_name);
-              const initialPrices={}; assets.forEach(a=>{initialPrices[a.asset_name]=Number(a.initial_price)||0;});
-              const early=scheds.filter(s=>s.product_id===p.id&&s.period!=="만기");
-              return{id:p.id,name:p.name,assets:assetNames,annualRate:Number(p.annual_rate),maturityMonths:p.maturity_months,redemptionCycle:p.redemption_cycle,earlyBarriers:p.early_barriers||[],knockIn:Number(p.knock_in),issue_date:p.issue_date,maturity_date:p.maturity_date,initialPrices,evaluationDates:early.map(s=>[s.eval_date,s.payment_date]),isLizard:p.is_lizard,is_ki_hit:p.is_ki_hit};
-            }));
-          }
-        }catch(e){}
-        setDbLoading(false);
-      },[]);
+     const loadDb = useCallback(async (token) => {
+  setDbLoading(true);
+  try {
+    const [prods, unders, scheds] = await Promise.all([
+      sb.get("products?select=*&order=id", token),
+      sb.get("underlyings?select=*", token),
+      sb.get("schedules?select=*&order=product_id,sort_order", token)
+    ]);
+
+    // [중요!] 가져온 스케줄 데이터를 바구니에 담아줍니다.
+    if (Array.isArray(scheds)) {
+      setSchedules(scheds);
+    }
+
+    if (Array.isArray(prods)) {
+      setDb(prods.map(p => {
+        const assets = unders.filter(u => u.product_id === p.id);
+        const assetNames = assets.map(a => a.asset_name);
+        const initialPrices = {};
+        assets.forEach(a => { initialPrices[a.asset_name] = Number(a.initial_price) || 0; });
+        const early = scheds.filter(s => s.product_id === p.id && s.period !== "만기");
+        
+        // _underlyings 라는 이름으로 기초자산 정보를 넣어주어야 calcStatus에서 사용 가능합니다.
+        return {
+          id: p.id,
+          name: p.name,
+          assets: assetNames,
+          annualRate: Number(p.annual_rate),
+          maturityMonths: p.maturity_months,
+          redemptionCycle: p.redemption_cycle,
+          earlyBarriers: p.early_barriers || [],
+          knockIn: Number(p.knock_in),
+          issue_date: p.issue_date,
+          maturity_date: p.maturity_date,
+          initialPrices,
+          evaluationDates: early.map(s => [s.eval_date, s.payment_date]),
+          isLizard: p.is_lizard,
+          is_ki_hit: p.is_ki_hit,
+          _underlyings: assets // 이 줄이 있어야 계산이 정확해집니다.
+        };
+      }));
+    }
+  } catch (e) {
+    console.error("데이터 로드 실패:", e);
+  }
+  setDbLoading(false);
+}, []);
 
       const loadAccounts=useCallback(async(token, userId)=>{
         setAccsLoading(true);
@@ -352,31 +382,7 @@
         setActiveTab(Math.max(0,activeTab-1));
       }
       async function renameAccount(idx,name){await sb.patch(`accounts?id=eq.${accounts[idx].id}`,{name},session.access_token);setAccounts(prev=>prev.map((a,i)=>i===idx?{...a,name}:a));}
-// --- 여기서부터 복사하세요 ---
-async function loadDb(token) {
-  const h = { "apikey": SB_KEY, "Authorization": `Bearer ${token}` };
-  try {
-    // 1. 상품 정보와 스케줄 정보를 동시에 가져옵니다.
-    const [pRes, sRes] = await Promise.all([
-      fetch(`${SB_URL}/rest/v1/products?select=*,_underlyings:underlyings(*)&order=id.asc`, { headers: h }),
-      fetch(`${SB_URL}/rest/v1/schedules?select=*&order=eval_date.asc`, { headers: h })
-    ]);
 
-    if (!pRes.ok || !sRes.ok) throw new Error("데이터 불러오기 실패");
-
-    const pData = await pRes.json();
-    const sData = await sRes.json();
-
-    // 2. 바구니에 데이터를 담습니다.
-    setDb(pData);
-    setSchedules(sData); 
-    
-    console.log(`[성공] 상품 ${pData.length}개, 스케줄 ${sData.length}개를 불러왔습니다.`);
-  } catch (err) {
-    console.error("데이터 로드 중 오류:", err);
-  }
-}
-// --- 여기까지 복사하세요 ---
      async function handleXlsxUpload(e) {
   const file = e.target.files[0]; if (!file) return;
   setXlsxLoading(true); setXlsxStatus(null);
