@@ -573,13 +573,24 @@
   const minRatio = Math.min(...assetStatuses.map(a => a.ratio || 100));
   const isKiHit = p.is_ki_hit;
 
-  let sText = ""; let sBg = ""; let sColor = "#fff";
+let sText = ""; let sBg = ""; let sColor = "";
+
   if (!isKiHit) {
-    if (minRatio >= barrier) { sText = "조기상환 가능"; sBg = "#3498db"; }
-    else { sText = "순연 예상"; sBg = "#f1c40f"; sColor = "#000"; }
+    if (minRatio >= barrier) { 
+      // 조기상환 가능: 파스텔 그린
+      sText = "조기상환 가능"; sBg = "#D1FAE5"; sColor = "#065F46"; 
+    } else { 
+      // 순연 예상: 파스텔 오렌지
+      sText = "순연 예상"; sBg = "#FFEDD5"; sColor = "#9A3412"; 
+    }
   } else {
-    if (minRatio >= barrier) { sText = "낙인터치 상환가능"; sBg = "#9b59b6"; }
-    else { sText = "낙인터치 손실위험"; sBg = "#e74c3c"; }
+    if (minRatio >= barrier) { 
+      // 낙인터치 상환가능: 파스텔 퍼플
+      sText = "낙인터치 상환가능"; sBg = "#F3E8FF"; sColor = "#6B21A8"; 
+    } else { 
+      // 낙인터치 손실위험: 파스텔 레드
+      sText = "낙인터치 손실위험"; sBg = "#FEE2E2"; sColor = "#991B1B"; 
+    }
   }
 
   return { 
@@ -700,7 +711,7 @@
         <div>
           <span style={{fontSize: 15, fontWeight: 500}}>{getShortName(p.name)}</span>
           {(p.is_lizard || p.isLizard) && (
-            <span style={{fontSize: 10, color: '#e74c3c', border: '1px solid #e74c3c', borderRadius: 4, padding: '1px 4px', fontWeight: 'bold', marginLeft: 6, verticalAlign: 'middle'}}>리자드</span>
+            <span style={{fontSize: 10, color: '#EF4444', border: '1px solid #e74c3c', borderRadius: 4, padding: '1px 4px', fontWeight: 'bold', marginLeft: 6, verticalAlign: 'middle'}}>리자드</span>
           )}
           <span style={{display: "inline-block", padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 500, background: st.sBg, color: st.sColor, marginLeft: 6}}>{st.sText}</span>
         </div>
