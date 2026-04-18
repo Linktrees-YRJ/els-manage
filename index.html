@@ -57,11 +57,11 @@
     function formatExcelDate(d) {
       if (!d) return null;
       if (d instanceof Date) {
-        // 로컬 타임존 기준으로 연, 월, 일을 추출하여 시차 오류를 방지합니다.
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
+        // 시차(Timezone) 오프셋을 밀리초로 계산하여 보정합니다.
+        // 이 방식은 어떤 환경에서도 엑셀에 표시된 '년-월-일'을 정확히 추출합니다.
+        const offset = d.getTimezoneOffset() * 60000;
+        const localDate = new Date(d.getTime() - offset);
+        return localDate.toISOString().split('T')[0];
       }
       const s = String(d).trim();
       if (s.length >= 10) return s.slice(0, 10);
@@ -362,6 +362,7 @@
 
     // products 테이블 업로드 (knock_in 변수명 수정 반영)
     // handleXlsxUpload 함수 내부의 prodRows 부분만 아래와 같이 수정
+    // handleXlsxUpload 함수 내부의 prodRows 부분
     const prodRows = parsed.map(p => ({
       id: p.id,
       name: p.name,
@@ -369,9 +370,9 @@
       maturity_months: p.maturityMonths,
       redemption_cycle: p.redemptionCycle,
       early_barriers: p.earlyBarriers,
-      knock_in: p.knockIn,           // 지난번 수정한 부분 유지
-      issue_date: p.issueDate,       // p.issueDate 확인
-      maturity_date: p.maturityDate, // p.maturity_date(X) -> p.maturityDate(O)로 수정
+      knock_in: p.knockIn,           // p.knock_in에서 p.knockIn으로 수정 유지
+      issue_date: p.issueDate,       // p.issueDate (기존 동일)
+      maturity_date: p.maturityDate, // 중요: p.maturity_date에서 p.maturityDate로 수정
       is_lizard: p.isLizard
     }));
     await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
