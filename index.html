@@ -475,21 +475,33 @@
       }
 
   function calcStatus(p) {
-  // 1. 기초 데이터가 없으면 즉시 안전한 가짜 데이터를 반환해서 충돌을 막습니다.
-  if (!p || !p.assets) return { sText: "로딩중", sBg: "#eee", sColor: "#999", assetStatuses: [], next: {date:"", days:0} };
+  if (!p || !p.id) return { sText: "데이터 오류", sBg: "#eee", sColor: "#999", assetStatuses: [], next: {date:"", days:0} };
   
-  // 2. schedules가 아직 안 불러와졌을 경우 대비
+  // 1. 전체 스케줄 데이터가 있는지 확인
   const targetSchedules = (typeof schedules !== 'undefined' && schedules) ? schedules : [];
-  const productSchedules = targetSchedules.filter(s => String(s.product_id) === String(p.id));
   
-  if (!productSchedules.length) return { sText: "데이터 없음", sBg: "#eee", sColor: "#999", assetStatuses: [], next: {date:"", days:0} };
+  // 2. 현재 상품 p.id와 일치하는 스케줄 필터링
+  // 숫자인지 문자인지 상관없게 둘 다 String으로 변환해서 비교합니다.
+  const productSchedules = targetSchedules.filter(s => String(s.product_id).trim() === String(p.id).trim());
+  
+  // [진단용 로그] 데이터 없음이 뜰 때 브라우저 개발자 도구(F12) 콘솔을 확인하세요.
+  if (productSchedules.length === 0) {
+    console.log(`[진단] 상품명: ${p.name} (ID: ${p.id})`);
+    console.log(`[진단] 전체 스케줄 개수: ${targetSchedules.length}개`);
+    if (targetSchedules.length > 0) {
+      console.log(`[진단] 첫 번째 스케줄의 product_id 예시: "${targetSchedules[0].product_id}"`);
+      console.log("-> 상품 ID와 스케줄의 상품ID가 일치하지 않습니다.");
+    } else {
+      console.log("-> 스케줄 데이터 자체가 비어있습니다. DB에서 불러오지 못한 것 같습니다.");
+    }
+    return { sText: "데이터 없음", sBg: "#eee", sColor: "#999", assetStatuses: [], next: {date:"", days:0} };
+  }
 
   const now = new Date();
   const future = productSchedules
     .filter(s => new Date(s.eval_date) >= now)
     .sort((a, b) => new Date(a.eval_date) - new Date(b.eval_date));
 
-  // 3. 미래 평가일이 없으면 '만기' 상태 반환
   if (!future.length) return { sText: "만기 평가중", sBg: "#eee", sColor: "#666", assetStatuses: [], next: {date:"", days:0} };
 
   const nextDate = future[0].eval_date;
@@ -511,7 +523,6 @@
     barrier = currentSchedules[0].barrier_pct || 100;
   }
 
-  // 4. 가격(prices) 데이터 안전 체크
   const targetPrices = (typeof prices !== 'undefined' && prices) ? prices : {};
   const assetStatuses = p.assets.map(assetName => {
     const cur = targetPrices[assetName];
