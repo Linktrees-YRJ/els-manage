@@ -54,18 +54,17 @@
       async signOut(token){ await fetch(`${SB_URL}/auth/v1/logout`,{method:"POST",headers:{"apikey":SB_KEY,"Authorization":`Bearer ${token}`}}); },
     };
 
-    function formatExcelDate(d){
-      if(!d) return null;
-      // 엑셀 셀 서식이 '날짜'일 경우 d는 Date 객체로 들어옵니다.
-      if(d instanceof Date) {
-        const y = d.getUTCFullYear();
-        const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(d.getUTCDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`; // 시차 상관없이 엑셀에 적힌 날짜 그대로 반환
+    function formatExcelDate(d) {
+      if (!d) return null;
+      if (d instanceof Date) {
+        // 로컬 타임존 기준으로 연, 월, 일을 추출하여 시차 오류를 방지합니다.
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
       }
-      // 텍스트일 경우 처리
       const s = String(d).trim();
-      if(s.length >= 10) return s.slice(0, 10);
+      if (s.length >= 10) return s.slice(0, 10);
       return null;
     }
 
@@ -341,20 +340,20 @@
       async function renameAccount(idx,name){await sb.patch(`accounts?id=eq.${accounts[idx].id}`,{name},session.access_token);setAccounts(prev=>prev.map((a,i)=>i===idx?{...a,name}:a));}
 
       async function handleXlsxUpload(e){
-  const file=e.target.files[0]; if(!file) return;
-  setXlsxLoading(true); setXlsxStatus(null);
-  try{
-    const buf=await file.arrayBuffer(); 
-    const wb = XLSX.read(buf, {type: "array", cellDates: true});
-    const parsed=parseElsExcel(wb);
-    if(parsed.length===0){setXlsxStatus({ok:false,msg:"데이터 없음"});setXlsxLoading(false);return;}
-    
-    const token=session.access_token; 
-    const h={...sbH(token),"Prefer":"return=minimal"};
-    async function dbFetch(url, method, body) { 
-      const res = await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined }); 
-      if (!res.ok) throw new Error("에러"); 
-    }
+      const file=e.target.files[0]; if(!file) return;
+      setXlsxLoading(true); setXlsxStatus(null);
+      try{
+        const buf=await file.arrayBuffer(); 
+        const wb = XLSX.read(buf, {type: "array", cellDates: true});
+        const parsed=parseElsExcel(wb);
+        if(parsed.length===0){setXlsxStatus({ok:false,msg:"데이터 없음"});setXlsxLoading(false);return;}
+        
+        const token=session.access_token; 
+        const h={...sbH(token),"Prefer":"return=minimal"};
+        async function dbFetch(url, method, body) { 
+          const res = await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined }); 
+          if (!res.ok) throw new Error("에러"); 
+        }
 
     // 기존 데이터 삭제 로직 유지
     await dbFetch(`${SB_URL}/rest/v1/schedules?id=gt.0`, "DELETE"); 
@@ -362,16 +361,17 @@
     await dbFetch(`${SB_URL}/rest/v1/products?id=neq.NONE`, "DELETE");
 
     // products 테이블 업로드 (knock_in 변수명 수정 반영)
-    const prodRows=parsed.map(p=>({
+    // handleXlsxUpload 함수 내부의 prodRows 부분만 아래와 같이 수정
+    const prodRows = parsed.map(p => ({
       id: p.id,
       name: p.name,
       annual_rate: p.annualRate,
       maturity_months: p.maturityMonths,
       redemption_cycle: p.redemptionCycle,
       early_barriers: p.earlyBarriers,
-      knock_in: p.knockIn, // p.knock_in에서 p.knockIn으로 수정
-      issue_date: p.issueDate,
-      maturity_date: p.maturityDate,
+      knock_in: p.knockIn,           // 지난번 수정한 부분 유지
+      issue_date: p.issueDate,       // p.issueDate 확인
+      maturity_date: p.maturityDate, // p.maturity_date(X) -> p.maturityDate(O)로 수정
       is_lizard: p.isLizard
     }));
     await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
