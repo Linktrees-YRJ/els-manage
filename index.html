@@ -369,28 +369,32 @@
           if (!res.ok) throw new Error("에러"); 
         }
 
-    // 기존 데이터 삭제 로직 유지
-    await dbFetch(`${SB_URL}/rest/v1/schedules?id=gt.0`, "DELETE"); 
-    await dbFetch(`${SB_URL}/rest/v1/underlyings?id=gt.0`, "DELETE"); 
-    await dbFetch(`${SB_URL}/rest/v1/products?id=neq.NONE`, "DELETE");
-
-    // products 테이블 업로드 (knock_in 변수명 수정 반영)
-    // handleXlsxUpload 함수 내부의 prodRows 부분만 아래와 같이 수정
-    // handleXlsxUpload 함수 내부의 prodRows 부분
-    // handleXlsxUpload 함수 내 prodRows 생성 부분
-    const prodRows = parsed.map(p => ({
-      id: p.id,
-      name: p.name,
-      annual_rate: p.annualRate,
-      maturity_months: p.maturityMonths,
-      redemption_cycle: p.redemptionCycle,
-      early_barriers: p.earlyBarriers,
-      knock_in: p.knockIn,           // p.knock_in에서 p.knockIn으로 수정
-      issue_date: p.issueDate,       // p.issueDate 확인
-      maturity_date: p.maturityDate, // p.maturity_date에서 p.maturityDate로 수정
-      is_lizard: p.isLizard
-    }));
-    await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
+           // 1. 이번에 업로드할 상품들의 ID 목록 생성
+        const ids = parsed.map(p => `"${p.id}"`).join(',');
+        
+        // 2. 기초자산과 스케줄은 중복 방지를 위해 이번 상품들에 해당하는 것만 삭제
+        await dbFetch(`${SB_URL}/rest/v1/schedules?product_id=in.(${ids})`, "DELETE");
+        await dbFetch(`${SB_URL}/rest/v1/underlyings?product_id=in.(${ids})`, "DELETE");
+        
+        // 3. 상품(products) 삭제 코드는 제거했습니다. (계좌 유지의 핵심)
+        
+        // 4. 상품 데이터 준비 (날짜 오차 및 변수명 수정 반영)
+        const prodRows = parsed.map(p => ({
+          id: p.id,
+          name: p.name,
+          annual_rate: p.annualRate,
+          maturity_months: p.maturityMonths,
+          redemption_cycle: p.redemptionCycle,
+          early_barriers: p.earlyBarriers,
+          knock_in: p.knockIn,
+          issue_date: p.issueDate,
+          maturity_date: p.maturityDate,
+          is_lizard: p.isLizard
+        }));
+        
+        // 5. POST 호출 시 중복 시 업데이트(on_conflict) 옵션 추가
+        const upsertUrl = `${SB_URL}/rest/v1/products?on_conflict=id`;
+        await dbFetch(upsertUrl, "POST", prodRows);
 
     // 기초자산 업로드 로직 유지
     const underRows=parsed.flatMap(p=>p._underlyings.map(u=>{ 
