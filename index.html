@@ -345,7 +345,7 @@
           const token=session.access_token; const h={...sbH(token),"Prefer":"return=minimal"};
           async function dbFetch(url, method, body) { const res = await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined }); if (!res.ok) throw new Error("에러"); }
           await dbFetch(`${SB_URL}/rest/v1/schedules?id=gt.0`, "DELETE"); await dbFetch(`${SB_URL}/rest/v1/underlyings?id=gt.0`, "DELETE"); await dbFetch(`${SB_URL}/rest/v1/products?id=neq.NONE`, "DELETE");
-          const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knock_in,issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard}));
+          const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knockIn,issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard}));
           await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
           const underRows=parsed.flatMap(p=>p._underlyings.map(u=>{ const raw = String(u.asset_name).trim(); const norm = NORMALIZE_MAP[raw] || raw; return {product_id:p.id, asset_name:norm, initial_price:parseNum(u.initial_price)}; }));
           if(underRows.length>0) await dbFetch(`${SB_URL}/rest/v1/underlyings`, "POST", underRows);
