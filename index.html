@@ -55,15 +55,18 @@
     };
 
     function formatExcelDate(d){
-      if(!d) return null;
-      if(d instanceof Date) {
-        const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
-        return `${y}-${m}-${day}`;
-      }
-      const s = String(d).trim();
-      if(s.length >= 10) return s.slice(0,10);
-      return null;
-    }
+  if(!d) return null;
+  if(d instanceof Date) {
+    // SheetJS가 날짜를 UTC 기준으로 파싱하므로, 오차를 없애기 위해 UTC 메서드를 사용합니다.
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  const s = String(d).trim();
+  if(s.length >= 10) return s.slice(0, 10);
+  return null;
+}
 
     function parseNum(val) {
       if(typeof val === 'number') return val;
@@ -337,25 +340,69 @@
       async function renameAccount(idx,name){await sb.patch(`accounts?id=eq.${accounts[idx].id}`,{name},session.access_token);setAccounts(prev=>prev.map((a,i)=>i===idx?{...a,name}:a));}
 
       async function handleXlsxUpload(e){
-        const file=e.target.files[0];if(!file)return;
-        setXlsxLoading(true);setXlsxStatus(null);
-        try{
-          const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:"array",cellDates:true}); const parsed=parseElsExcel(wb);
-          if(parsed.length===0){setXlsxStatus({ok:false,msg:"데이터 없음"});setXlsxLoading(false);return;}
-          const token=session.access_token; const h={...sbH(token),"Prefer":"return=minimal"};
-          async function dbFetch(url, method, body) { const res = await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined }); if (!res.ok) throw new Error("에러"); }
-          await dbFetch(`${SB_URL}/rest/v1/schedules?id=gt.0`, "DELETE"); await dbFetch(`${SB_URL}/rest/v1/underlyings?id=gt.0`, "DELETE"); await dbFetch(`${SB_URL}/rest/v1/products?id=neq.NONE`, "DELETE");
-          const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knockIn,issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard}));
-          await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
-          const underRows=parsed.flatMap(p=>p._underlyings.map(u=>{ const raw = String(u.asset_name).trim(); const norm = NORMALIZE_MAP[raw] || raw; return {product_id:p.id, asset_name:norm, initial_price:parseNum(u.initial_price)}; }));
-          if(underRows.length>0) await dbFetch(`${SB_URL}/rest/v1/underlyings`, "POST", underRows);
-          const rawS=XLSX.utils.sheet_to_json(wb.Sheets["Schedules"],{defval:""});
-          const schedRows=rawS.map((s,i)=>({product_id:String(s.product_code),period:String(s.period),eval_date:formatExcelDate(s.eval_date),payment_date:formatExcelDate(s.payment_date),barrier_pct:parseNum(s.barrier_pct)||null,yield_pct:parseNum(s.yield_pct)||null,sort_order:i}));
-          if(schedRows.length>0) await dbFetch(`${SB_URL}/rest/v1/schedules`, "POST", schedRows);
-          setXlsxStatus({ok:true,msg:`✓ 저장 완료`}); await loadDb(token);
-        }catch(err){setXlsxStatus({ok:false,msg:`실패`});}
-        setXlsxLoading(false);
-      }
+  const file=e.target.files[0]; if(!file) return;
+  setXlsxLoading(true); setXlsxStatus(null);
+  try{
+    const buf=await file.arrayBuffer(); 
+    const wb=XLSX.read(buf, {type: "array", cellDates: true}); 
+    const parsed=parseElsExcel(wb);
+    if(parsed.length===0){setXlsxStatus({ok:false,msg:"데이터 없음"});setXlsxLoading(false);return;}
+    
+    const token=session.access_token; 
+    const h={...sbH(token),"Prefer":"return=minimal"};
+    async function dbFetch(url, method, body) { 
+      const res = await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined }); 
+      if (!res.ok) throw new Error("에러"); 
+    }
+
+    // 기존 데이터 삭제 로직 유지
+    await dbFetch(`${SB_URL}/rest/v1/schedules?id=gt.0`, "DELETE"); 
+    await dbFetch(`${SB_URL}/rest/v1/underlyings?id=gt.0`, "DELETE"); 
+    await dbFetch(`${SB_URL}/rest/v1/products?id=neq.NONE`, "DELETE");
+
+    // products 테이블 업로드 (knock_in 변수명 수정 반영)
+    const prodRows=parsed.map(p=>({
+      id: p.id,
+      name: p.name,
+      annual_rate: p.annualRate,
+      maturity_months: p.maturityMonths,
+      redemption_cycle: p.redemptionCycle,
+      early_barriers: p.earlyBarriers,
+      knock_in: p.knockIn, // p.knock_in에서 p.knockIn으로 수정
+      issue_date: p.issueDate,
+      maturity_date: p.maturityDate,
+      is_lizard: p.isLizard
+    }));
+    await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
+
+    // 기초자산 업로드 로직 유지
+    const underRows=parsed.flatMap(p=>p._underlyings.map(u=>{ 
+      const raw = String(u.asset_name).trim(); 
+      const norm = NORMALIZE_MAP[raw] || raw; 
+      return {product_id:p.id, asset_name:norm, initial_price:parseNum(u.initial_price)}; 
+    }));
+    if(underRows.length>0) await dbFetch(`${SB_URL}/rest/v1/underlyings`, "POST", underRows);
+
+    // 스케줄 업로드 로직 유지
+    const rawS=XLSX.utils.sheet_to_json(wb.Sheets["Schedules"],{defval:""});
+    const schedRows=rawS.map((s,i)=>({
+      product_id: String(s.product_code),
+      period: String(s.period),
+      eval_date: formatExcelDate(s.eval_date),
+      payment_date: formatExcelDate(s.payment_date),
+      barrier_pct: parseNum(s.barrier_pct)||null,
+      yield_pct: parseNum(s.yield_pct)||null,
+      sort_order: i
+    }));
+    if(schedRows.length>0) await dbFetch(`${SB_URL}/rest/v1/schedules`, "POST", schedRows);
+
+    setXlsxStatus({ok:true,msg:`✓ 저장 완료`}); 
+    await loadDb(token);
+  }catch(err){
+    setXlsxStatus({ok:false,msg:`실패`});
+  }
+  setXlsxLoading(false);
+}
 
       const acc=accounts[activeTab]||accounts[0]||{id:null,name:"",products:{}};
       const myProductIds=Object.keys(acc.products||{}).map(String); const myProducts=db.filter(p=>myProductIds.includes(String(p.id)));
