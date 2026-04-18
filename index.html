@@ -55,12 +55,12 @@
       async signOut(token){ await fetch(`${SB_URL}/auth/v1/logout`,{method:"POST",headers:{"apikey":SB_KEY,"Authorization":`Bearer ${token}`}}); },
     };
 
-    // ★ [수정] 날짜 오차 보정 (+9시간)
+    // ★ 날짜 보정: UTC를 KST로 변환 (+9시간)
     function formatExcelDate(d){
       if(!d) return null;
       if(d instanceof Date) {
         const kstDate = new Date(d.getTime() + (9 * 60 * 60 * 1000));
-        const y=kstDate.getUTCFullYear(), m=String(kstDate.getUTCMonth()+1).padStart(2,'0'), day=String(kstDate.getUTCDate()).padStart(2,'0');
+        const y=kstDate.getFullYear(), m=String(kstDate.getMonth()+1).padStart(2,'0'), day=String(kstDate.getDate()).padStart(2,'0');
         return `${y}-${m}-${day}`;
       }
       const s = String(d).trim();
@@ -96,7 +96,7 @@
       return num ? `${brand} ${num}` : (fullName.length > 20 ? fullName.substring(0, 20) + "..." : fullName);
     }
 
-    // ★ [수정] 리자드 및 낙인 파싱 로직 보강
+    // ★ 파싱 보완: 낙인 수치 및 리자드 정보 추출
     function parseElsExcel(wb){
       const toJ=name=>{const s=wb.Sheets[name];return s?XLSX.utils.sheet_to_json(s,{defval:""}):[];};
       const products=toJ("Products"),underlyings=toJ("Underlyings"),schedules=toJ("Schedules");
@@ -112,12 +112,12 @@
           initialPrices[norm] = parseNum(a.initial_price); 
         });
 
-        // barriers에서 리자드 배리어 (L50) 추출
+        // barriers 문자열에서 리자드 배리어 (L50) 추출
         const rawBarriers = String(p.barriers || "");
         const lizardMatch = rawBarriers.match(/\(L(\d+)\)/);
         const lizardBarrier = lizardMatch ? parseNum(lizardMatch[1]) : 0;
         
-        // 조기상환 배리어에서 리자드 텍스트 제거
+        // 조기상환 배리어에서 리자드 텍스트 제거 후 배열화
         const earlyBarriers = rawBarriers.replace(/\(L\d+\)/g, "").split(/[-,]/).map(parseNum).filter(n => n > 0);
 
         const sched=schedules.filter(s=>String(s.product_code)===code);
@@ -248,7 +248,7 @@
             setDb(prods.map(p=>{
               const assets=unders.filter(u=>u.product_id===p.id); const assetNames=assets.map(a=>a.asset_name);
               const initialPrices={}; assets.forEach(a=>{initialPrices[a.asset_name]=Number(a.initial_price)||0;});
-              const allScheds = scheds.filter(s => s.product_id === p.id);
+              const allScheds = scheds.filter(s => s.product_id === p.id); // 모든 일정(만기 포함) 보관
               const early=allScheds.filter(s=>String(s.period)!=="만기");
               return{
                 id:p.id,name:p.name,assets:assetNames,annualRate:Number(p.annual_rate),maturityMonths:p.maturity_months,
@@ -286,8 +286,7 @@
           if(data.access_token){
             setSession(data); setScreen("main");
             loadDb(data.access_token); loadAccounts(data.access_token, data.user.id); loadPricesFromDB(data.access_token);
-          }
-          else setAuthErr(data.error_description||data.message||"로그인 실패");
+          } else setAuthErr(data.error_description||data.message||"로그인 실패");
         }catch(e){setAuthErr("네트워크 오류");}
         setAuthLoading(false);
       }
@@ -300,18 +299,6 @@
           if(data.user&&!data.error)setAuthErr("✓ 가입 완료! 이제 로그인해주세요.");
           else setAuthErr(data.error_description||data.message||"가입 실패");
         }catch(e){}
-        setAuthLoading(false);
-      }
-
-      async function handleResetPassword() {
-        if (!email) { setAuthErr("아이디를 먼저 입력해주세요."); return; }
-        setAuthLoading(true); setAuthErr("");
-        try {
-          const formattedEmail = email.includes('@') ? email : `${email}@els.local`;
-          const r = await fetch(`${SB_URL}/auth/v1/recover`, { method: "POST", headers: { "Content-Type": "application/json", "apikey": SB_KEY }, body: JSON.stringify({ email: formattedEmail }) });
-          if (r.ok) setAuthErr("✓ 비밀번호 재설정 메일 발송");
-          else { const err = await r.json(); setAuthErr(err.message); }
-        } catch (e) { setAuthErr("네트워크 오류"); }
         setAuthLoading(false);
       }
 
@@ -340,7 +327,7 @@
       }
       async function delAccount(){
         if(accounts.length===1)return; 
-        if(!window.confirm(`'${acc.name}' 계좌를 정말 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없으며, 담겨있는 상품 정보도 함께 사라집니다.)`)) return; 
+        if(!window.confirm(`'${acc.name}' 계좌를 정말 삭제하시겠습니까?`)) return; 
         await sb.del(`accounts?id=eq.${acc.id}`,session.access_token);
         setAccounts(prev=>prev.filter((_,i)=>i!==activeTab));
         setActiveTab(Math.max(0,activeTab-1));
@@ -352,26 +339,17 @@
         setXlsxLoading(true); setXlsxStatus(null);
         try{
           const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:"array",cellDates:true}); const parsed=parseElsExcel(wb);
-          if(parsed.length===0){setXlsxLoading(false); return;}
           const token=session.access_token; const h={...sbH(token),"Prefer":"return=minimal"};
-          async function dbFetch(url, method, body) { const res = await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined }); if (!res.ok) throw new Error("에러"); }
+          async function dbFetch(url, method, body) { await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined }); }
           await dbFetch(`${SB_URL}/rest/v1/schedules?id=gt.0`, "DELETE"); await dbFetch(`${SB_URL}/rest/v1/underlyings?id=gt.0`, "DELETE"); await dbFetch(`${SB_URL}/rest/v1/products?id=neq.NONE`, "DELETE");
-          
-          const prodRows=parsed.map(p=>({
-            id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,
-            redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knockIn,
-            issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard, lizard_barrier_1: p.lizardBarrier
-          }));
+          const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knockIn,issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard, lizard_barrier_1: p.lizardBarrier}));
           await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
-          
-          const underRows=parsed.flatMap(p=>p._underlyings.map(u=>{ const raw = String(u.asset_name).trim(); const norm = NORMALIZE_MAP[raw] || raw; return {product_id:p.id, asset_name:norm, initial_price:parseNum(u.initial_price)}; }));
+          const underRows=parsed.flatMap(p=>p._underlyings.map(u=>({product_id:p.id, asset_name:u.asset_name, initial_price:parseNum(u.initial_price)})));
           if(underRows.length>0) await dbFetch(`${SB_URL}/rest/v1/underlyings`, "POST", underRows);
-          
           const rawS=XLSX.utils.sheet_to_json(wb.Sheets["Schedules"],{defval:""});
-          const schedRows=rawS.map((s,i)=>({product_id:String(s.product_code),period:String(s.period),eval_date:formatExcelDate(s.eval_date),payment_date:formatExcelDate(s.payment_date),barrier_pct:parseNum(s.barrier_pct)||null,yield_pct:parseNum(s.yield_pct)||null,sort_order:i}));
+          const schedRows=rawS.map((s,i)=>({product_id:String(s.product_code),period:String(s.period),eval_date:formatExcelDate(s.eval_date),payment_date:formatExcelDate(s.payment_date),barrier_pct:parseNum(s.barrier_pct)||null,sort_order:i}));
           if(schedRows.length>0) await dbFetch(`${SB_URL}/rest/v1/schedules`, "POST", schedRows);
-          
-          setXlsxStatus({ok:true,msg:"✓ 저장 완료"}); await loadDb(token);
+          setXlsxStatus({ok:true,msg:"✓ 완료"}); await loadDb(token);
         }catch(err){setXlsxStatus({ok:false,msg:"실패"});}
         setXlsxLoading(false);
       }
@@ -398,6 +376,11 @@
       const allProductIds=[...new Set(accounts.flatMap(a=>Object.keys(a.products||{}).map(String)))];
       const rawDashProducts=dashView==="account"?myProducts:db.filter(p=>allProductIds.includes(String(p.id)));
 
+      const currentAccMetrics = calcAccMetrics(acc);
+      const allAccsMetrics = accounts.map(a => ({ name: a.name, ...calcAccMetrics(a) }));
+      const grandTotal = allAccsMetrics.reduce((s, m) => s + m.total, 0);
+      const grandRate = grandTotal > 0 ? allAccsMetrics.reduce((s, m) => s + (m.total * m.rate), 0) / grandTotal : 0;
+
       function setAmt(pid,val){setAccounts(prev=>prev.map((a,i)=>i===activeTab?{...a,products:{...a.products,[pid]:Math.max(0,val)}}:a));}
       function addAmtFn(pid,delta){setAccounts(prev=>prev.map((a,i)=>i===activeTab?{...a,products:{...a.products,[pid]:Math.max(0,(a.products[pid]||0)+delta)}}:a));}
       function openAddModal(mode){const init={};db.forEach(p=>{if(!myProductIds.includes(String(p.id)))init[p.id]=true;});setCheckedAdd(init);setTextInput("");setTextMatched(null);setAddModal(mode);}
@@ -406,6 +389,7 @@
       function handleTextMatch(){const nums=textInput.match(/\d+/g)||[];const matched=db.filter(p=>{const pn=p.name.match(/\d+/g)||[];return nums.some(n=>pn.includes(n));}).filter(p=>!myProductIds.includes(String(p.id)));const init={};matched.forEach(p=>init[p.id]=true);setCheckedAdd(init);setTextMatched(matched);}
       function getInitPrice(pid,asset){const o=initPrices[pid]?.[asset];if(o!==undefined&&o!==0)return o;return db.find(p=>String(p.id)===String(pid))?.initialPrices[asset]??0;}
 
+      // ★ 상태 계산 보강: 리자드 상환 로직 포함
       function calcStatus(p){
         const next=getNextEval(p); const idx=next?p.evaluationDates.findIndex(([e])=>e===next.date):p.evaluationDates.length-1;
         const barrier=p.earlyBarriers[idx]??p.earlyBarriers[p.earlyBarriers.length-1];
@@ -417,22 +401,24 @@
         const hasPriceData = assetStatuses.every(a => a.ratio !== null);
         const canRedeem = hasPriceData && assetStatuses.every(a=>a.canRedeem===true);
         
-        // ★ [수정] 리자드 상환 로직 구현 (3차 조기상환 시점 평가)
-        let isLizardRedeem = false;
+        let isLizardRedeem = false; // 리자드 상환 조건 판별
         if (p.isLizard && idx === 2 && !canRedeem && hasPriceData) {
-          if (assetStatuses.every(as => as.ratio >= (p.lizardBarrier || 50))) isLizardRedeem = true;
+          if (assetStatuses.every(as => as.ratio >= (p.lizardBarrier || 55))) isLizardRedeem = true;
         }
 
         const isKnockedIn = p.is_ki_hit || assetStatuses.some(a=>a.ratio !== null && a.ratio < p.knockIn);
         let sText = "시세 대기", sBg = "#f9f9f9", sColor = "#aaa";
         if (hasPriceData) {
-          if (!isKnockedIn && canRedeem)      { sText = "조기상환 가능";    sBg = "#E1F5EE"; sColor = "#0F6E56"; }
-          else if (!isKnockedIn && !canRedeem){ 
-            if (isLizardRedeem) { sText = "리자드 상환"; sBg = "#fdf2f8"; sColor = "#db2777"; }
-            else { sText = "순연 예상"; sBg = "#FFF4E5"; sColor = "#D97706"; }
+          if (canRedeem) {
+            sText = isKnockedIn ? "낙인터치 상환가능" : "조기상환 가능";
+            sBg = isKnockedIn ? "#F3E8FF" : "#E1F5EE"; sColor = isKnockedIn ? "#7E22CE" : "#0F6E56";
+          } else if (isLizardRedeem) {
+            sText = "리자드 상환"; sBg = "#fdf2f8"; sColor = "#db2777";
+          } else if (isKnockedIn) {
+            sText = "낙인터치 손실위험"; sBg = "#FEE2E2"; sColor = "#DC2626";
+          } else {
+            sText = "순연 예상"; sBg = "#FFF4E5"; sColor = "#D97706";
           }
-          else if (isKnockedIn && canRedeem)  { sText = "낙인터치 상환가능"; sBg = "#F3E8FF"; sColor = "#7E22CE"; }
-          else if (isKnockedIn && !canRedeem) { sText = "낙인터치 손실위험"; sBg = "#FEE2E2"; sColor = "#DC2626"; }
         }
         return{assetStatuses, isKnockedIn, canRedeem, barrier, next, sText, sBg, sColor};
       }
@@ -457,38 +443,26 @@
           <div style={{...C.card,width:340,margin:"0 auto"}}>
             <h2 style={{fontSize:20,fontWeight:500,marginBottom:16}}>ELS 관리 시스템</h2>
             <div style={{display:"flex",marginBottom:20,border:"1px solid #ddd",borderRadius:8,overflow:"hidden"}}>
-              {[["login","로그인"],["signup","회원가입"]].map(([key,label])=>(<button key={key} onClick={()=>{setAuthTab(key);setAuthErr("");}} style={{flex:1,padding:"8px",border:"none",background:authTab===key?"#185FA5":"transparent",color:authTab===key?"#fff":"#666",cursor:"pointer",fontSize:14}}>{label}</button>))}
+              {[["login","로그인"],["signup","회원가입"]].map(([key,label])=>(<button key={key} onClick={()=>{setAuthTab(key)}} style={{flex:1,padding:"8px",border:"none",background:authTab===key?"#185FA5":"transparent",color:authTab===key?"#fff":"#666",fontSize:14}}>{label}</button>))}
             </div>
-            <div style={{marginBottom:12}}>
-              <label style={C.label}>아이디</label>
-              <input style={C.input} type="text" value={email} onChange={e=>setEmail(e.target.value)} placeholder="아이디 입력"/>
-            </div>
-            <div style={{marginBottom:16}}>
-              <label style={C.label}>비밀번호</label>
-              <input style={C.input} type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="비밀번호"/>
-            </div>
-            <button style={{...C.btnP,width:"100%",padding:10}} onClick={authTab==="login"?handleLogin:handleSignUp} disabled={authLoading}>{authLoading?"처리 중...":(authTab==="login"?"로그인":"회원가입")}</button>
+            <div style={{marginBottom:12}}><label style={C.label}>아이디</label><input style={C.input} value={email} onChange={e=>setEmail(e.target.value)} placeholder="아이디"/></div>
+            <div style={{marginBottom:16}}><label style={C.label}>비밀번호</label><input style={C.input} type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="비밀번호"/></div>
+            <button style={{...C.btnP,width:"100%",padding:10}} onClick={authTab==="login"?handleLogin:handleSignUp}>{authTab==="login"?"로그인":"회원가입"}</button>
           </div>
         </div>
       );
 
       if(screen==="admin") return (
         <div style={C.wrap}>
-          <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <span style={{fontSize:17,fontWeight:500}}>관리자 기능</span>
-            <button style={C.btn} onClick={()=>setScreen("main")}>메인으로</button>
-          </div>
+          <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"12px 20px",display:"flex",justifyContent:"space-between"}}><span style={{fontSize:17,fontWeight:500}}>관리자 기능</span><button style={C.btn} onClick={()=>setScreen("main")}>메인으로</button></div>
           <div style={{padding:16,maxWidth:800,margin:"0 auto"}}>
             <div style={{...C.card,marginBottom:16,border:"1px solid #185FA5"}}>
               <span style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>야후 파이낸스 시세 업데이트</span>
               <p style={{fontSize:13,color:"#666",marginBottom:12}}>시세를 DB에 수동으로 덮어씁니다.</p>
               <button style={{...C.btnP, opacity:pricesLoading?0.6:1}} onClick={updatePricesFromYahoo} disabled={pricesLoading}>시세 수집 및 DB 저장</button>
             </div>
-            <div style={{...C.card,marginBottom:16}}>
-              <span style={{fontSize:15,fontWeight:500}}>엑셀로 ELS DB 업데이트</span>
-              <p style={{fontSize:13,color:"#666",marginBottom:12}}>xlsx 파일을 업로드하여 상품 정보를 갱신합니다.</p>
-              <label style={{...C.btnP,background:"#555",display:"inline-flex",alignItems:"center",gap:6,cursor:"pointer"}}>📂 엑셀 업로드<input type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleXlsxUpload}/></label>
-              {xlsxStatus&&<div style={{marginTop:12,padding:"10px 14px",borderRadius:8,background:xlsxStatus.ok?"#E1F5EE":"#FCEBEB",color:xlsxStatus.ok?"#0F6E56":"#DC2626",fontSize:13}}>{xlsxStatus.msg}</div>}
+            <div style={C.card}><span style={{fontSize:15,fontWeight:500}}>엑셀 업데이트</span><label style={{...C.btnP,display:"inline-block",marginTop:10,cursor:"pointer"}}>📂 엑셀 업로드<input type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleXlsxUpload}/></label>
+              {xlsxStatus&&<div style={{marginTop:12,padding:"10px 14px",borderRadius:8,background:xlsxStatus.ok?"#E1F5EE":"#FCEBEB",color:xlsxStatus.ok?"#0F6E56":"#DC2626"}}>{xlsxStatus.msg}</div>}
             </div>
           </div>
         </div>
@@ -496,14 +470,10 @@
 
       return (
         <div style={C.wrap}>
-          <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"12px 20px",display:"flex",justifyContent:"space-between"}}>
-            <span style={{fontSize:17,fontWeight:500}}>ELS 관리</span>
-            <div style={{display:"flex",gap:8}}>
-              {isAdmin&&<button style={{...C.btn,color:"#185FA5"}} onClick={()=>setScreen("admin")}>관리자</button>}
-              <button style={C.btn} onClick={handleLogout}>로그아웃</button>
-            </div>
+          <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"12px 20px",display:"flex",justifyContent:"space-between"}}><span style={{fontSize:17,fontWeight:500}}>ELS 관리</span>
+            <div style={{display:"flex",gap:8}}>{isAdmin&&<button style={{...C.btn,color:"#185FA5"}} onClick={()=>setScreen("admin")}>관리자</button>}
+            <button style={C.btn} onClick={handleLogout}>로그아웃</button></div>
           </div>
-
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"0 16px",display:"flex",alignItems:"center",gap:4,overflowX:"auto"}}>
             {accounts.map((a,i)=>(
               <div key={a.id} onClick={()=>{setActiveTab(i);setEditMode(false);}} style={{padding:"10px 14px",cursor:"pointer",fontSize:14,borderBottom:i===activeTab?"2px solid #185FA5":"2px solid transparent",color:i===activeTab?"#185FA5":"#888",whiteSpace:"nowrap"}}>
@@ -514,7 +484,6 @@
             <button style={{...C.btn,padding:"4px 8px",fontSize:12}} onClick={dupAccount}>복제</button>
             {accounts.length>1&&<button style={{...C.btn,padding:"4px 8px",fontSize:12,color:"#DC2626"}} onClick={delAccount}>삭제</button>}
           </div>
-
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",display:"flex",padding:"0 16px"}}>
             {[["list","상품 목록"],["dashboard","평가 현황판"]].map(([key,label])=>(<button key={key} onClick={()=>setMainTab(key)} style={{padding:"10px 16px",fontSize:14,border:"none",borderBottom:mainTab===key?"2px solid #185FA5":"2px solid transparent",background:"transparent",color:mainTab===key?"#185FA5":"#888",cursor:"pointer",fontWeight:mainTab===key?500:400}}>{label}</button>))}
           </div>
@@ -523,29 +492,25 @@
             {mainTab==="list"&&(<>
               {!editMode ? (<>
                 <div style={{display:"flex",gap:10,marginBottom:12}}><div style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>{acc.name} 총 가입금액</div><div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.total.toLocaleString()}만</div></div><div style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>평균 수익률</div><div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.rate.toFixed(1)}%</div></div></div>
-                {myProducts.length===0 && <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>가입 상품이 없습니다.</div>}
-                {myProducts.map(p=>{const st=calcStatus(p); return(<div key={p.id} style={{...C.card,cursor:"pointer"}} onClick={()=>setDetailProduct(p)}><div style={{display:"flex",justifyContent:"space-between"}}><div><span style={{fontSize:15,fontWeight:500}}>{getShortName(p.name)}</span><span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:11,fontWeight:500,background:st.sBg,color:st.sColor,marginLeft:6}}>{st.sText}</span></div><span style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>{(acc.products[p.id]||0).toLocaleString()}만원</span></div><div style={{fontSize:12,color:"#888",marginTop:6}}>{p.assets.join("/")} | 연 {p.annualRate}% | KI {p.knockIn}%</div></div>);})}
+                {myProducts.map(p=>{const st=calcStatus(p); return(<div key={p.id} style={{...C.card,cursor:"pointer"}} onClick={()=>setDetailProduct(p)}><div style={{display:"flex",justifyContent:"space-between"}}><div><span style={{fontSize:15,fontWeight:500}}>{getShortName(p.name)}</span><span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:11,fontWeight:500,background:st.sBg,color:st.sColor,marginLeft:6}}>{st.sText}</span></div><span style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>{(acc.products[p.id]||0).toLocaleString()}만원</span></div></div>);})}
                 <button style={{...C.btnP,width:"100%",marginTop:10}} onClick={()=>setEditMode(true)}>수정</button>
               </>) : (<>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><span style={{fontSize:15,fontWeight:500}}>수정 모드</span><div style={{display:"flex",gap:8}}><button style={C.btn} onClick={()=>{const n={};myProducts.forEach(p=>n[p.id]=true);setSelectedDelete(n);}}>전체 선택</button>{Object.values(selectedDelete).some(Boolean)&&<button style={C.btnD} onClick={deleteSelected}>선택 삭제</button>}<button style={C.btn} onClick={()=>{setEditMode(false);setSelectedDelete({});}}>취소</button></div></div>
-                {myProducts.map(p=>(<div key={p.id} style={C.card}><div onClick={()=>setSelectedDelete(prev=>({...prev,[p.id]:!prev[p.id]}))} style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,cursor:"pointer"}}><input type="checkbox" checked={!!selectedDelete[p.id]} onChange={()=>{}} style={{width:16,height:16,pointerEvents:"none"}}/><span style={{fontSize:14,fontWeight:500,flex:1}}>{getShortName(p.name)}</span><span style={{fontSize:13,color:"#888"}}>연 {p.annualRate}%</span></div><div style={{display:"flex",flexDirection:"column",gap:8}}><div style={{display:"flex",alignItems:"stretch",border:"1px solid #888",borderRadius:8,overflow:"hidden"}}><input type="number" value={acc.products[p.id]||0} onChange={e=>setAmt(p.id,parseInt(e.target.value)||0)} style={{flex:1,minWidth:0,padding:"9px 12px",fontSize:15,border:"none",outline:"none",background:"#fff",color:"#111"}}/><span style={{display:"flex",alignItems:"center",padding:"0 12px",fontSize:14,color:"#555",borderLeft:"1px solid #888",background:"#f5f5f5",whiteSpace:"nowrap"}}>만원</span></div><div style={{display:"flex",gap:6}}>{[["+100만",100],["+10만",10],["+1만",1]].map(([label,val])=>(<button key={label} onClick={()=>addAmtFn(p.id,val)} style={{flex:1,padding:"8px 0",fontSize:13,border:"1px solid #ccc",borderRadius:6,background:"#fff",color:"#111"}}>{label}</button>))}<button onClick={()=>setAmt(p.id,0)} style={{flex:1,padding:"8px 0",fontSize:13,border:"1px solid #FCA5A5",borderRadius:6,background:"#FEF2F2",color:"#DC2626",fontWeight:500}}>초기화</button></div></div></div>))}
+                {myProducts.map(p=>(<div key={p.id} style={C.card}><div onClick={()=>setSelectedDelete(prev=>({...prev,[p.id]:!prev[p.id]}))} style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,cursor:"pointer"}}><input type="checkbox" checked={!!selectedDelete[p.id]} onChange={()=>{}} style={{width:16,height:16,pointerEvents:"none"}}/><span style={{fontSize:14,fontWeight:500,flex:1}}>{getShortName(p.name)}</span></div><div style={{display:"flex",flexDirection:"column",gap:8}}><div style={{display:"flex",alignItems:"stretch",border:"1px solid #888",borderRadius:8,overflow:"hidden"}}><input type="number" value={acc.products[p.id]||0} onChange={e=>setAmt(p.id,parseInt(e.target.value)||0)} style={{flex:1,minWidth:0,padding:"9px 12px",fontSize:15,border:"none",outline:"none",background:"#fff",color:"#111"}}/><span style={{display:"flex",alignItems:"center",padding:"0 12px",fontSize:14,color:"#555",borderLeft:"1px solid #888",background:"#f5f5f5",whiteSpace:"nowrap"}}>만원</span></div><div style={{display:"flex",gap:6}}>{[["+100만",100],["+10만",10],["+1만",1]].map(([label,val])=>(<button key={label} onClick={()=>addAmtFn(p.id,val)} style={{flex:1,padding:"8px 0",fontSize:13,border:"1px solid #ccc",borderRadius:6,background:"#fff",color:"#111"}}>{label}</button>))}<button onClick={()=>setAmt(p.id,0)} style={{flex:1,padding:"8px 0",fontSize:13,border:"1px solid #FCA5A5",borderRadius:6,background:"#FEF2F2",color:"#DC2626"}}>초기화</button></div></div></div>))}
                 <button style={{...C.btn,width:"100%",marginBottom:8}} onClick={()=>openAddModal("list")}>+ 상품 추가</button>
                 <button style={{...C.btnP,width:"100%"}} onClick={async()=>{await saveAccountProducts(acc.id,acc.products);setEditMode(false);}} disabled={saving}>{saving?"저장 중...":"저장 완료"}</button>
               </>)}
             </>)}
 
-            {mainTab==="dashboard"&&(<>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>{lastUpdated&&<span style={{fontSize:12,color:"#888"}}>{lastUpdated}</span>}<button style={{...C.btn,padding:"6px 12px",fontSize:12,border:"1px solid #185FA5",color:"#185FA5"}} onClick={()=>loadPricesFromDB(session.access_token)} disabled={pricesLoading}>DB 시세 불러오기</button></div>
-              {filteredDashProducts.map(({p, st}) => (
-                <div key={p.id} style={C.card}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-                    <div><span style={{fontSize:15,fontWeight:500}}>{getShortName(p.name)}</span><div style={{marginTop:4}}>{st.next&&<span style={{fontSize:12,color:"#888"}}>D-{st.next.days} ({fmt(st.next.date)})</span>}</div></div>
-                    <span style={{display:"inline-block",padding:"3px 10px",borderRadius:6,fontSize:12,fontWeight:500,background:st.sBg,color:st.sColor}}>{st.sText}</span>
-                  </div>
-                  {st.assetStatuses.map(as=>(<div key={as.asset} style={{marginBottom:10}}><RatioBar ratio={as.ratio} init={as.init} cur={as.cur} barrier={as.barrier} knockIn={p.knockIn}/></div>))}
+            {mainTab==="dashboard" && filteredDashProducts.map(({p, st}) => (
+              <div key={p.id} style={C.card}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                  <div><span style={{fontSize:15,fontWeight:500}}>{getShortName(p.name)}</span><div style={{marginTop:4}}>{st.next&&<span style={{fontSize:12,color:"#888"}}>D-{st.next.days} ({fmt(st.next.date)})</span>}</div></div>
+                  <span style={{display:"inline-block",padding:"3px 10px",borderRadius:6,fontSize:12,fontWeight:500,background:st.sBg,color:st.sColor}}>{st.sText}</span>
                 </div>
-              ))}
-            </>)}
+                {st.assetStatuses.map(as=>(<div key={as.asset} style={{marginBottom:10}}><RatioBar ratio={as.ratio} init={as.init} cur={as.cur} barrier={as.barrier} knockIn={p.knockIn}/></div>))}
+              </div>
+            ))}
           </div>
 
           {addModal&&(
@@ -567,19 +532,19 @@
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><span style={{fontSize:16,fontWeight:500}}>{getShortName(detailProduct.name)}</span><button style={C.btn} onClick={()=>setDetailProduct(null)}>닫기</button></div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>{[["연 수익률",detailProduct.annualRate+"%"],["낙인배리어",detailProduct.knockIn+"%"],["발행일",fmt(detailProduct.issue_date)],["만기일",fmt(detailProduct.maturity_date)]].map(([k,v])=>(<div key={k} style={{background:"#f5f7fa",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:12,color:"#666"}}>{k}</div><div style={{fontSize:14,fontWeight:500,marginTop:2}}>{v}</div></div>))}</div>
                 
-                {/* ★ [수정] 리자드 조건 표시 섹션 */}
+                {/* ★ 리자드 배리어 안내 추가 */}
                 {detailProduct.isLizard && (
                   <div style={{background:"#fdf2f8", border:"1px solid #f9a8d4", padding:12, borderRadius:8, marginBottom:16}}>
                     <div style={{fontSize:12, color:"#db2777", fontWeight:700}}>🦎 리자드 조건</div>
-                    <div style={{fontSize:13, marginTop:4, color: "#555"}}>리자드 배리어: {detailProduct.lizardBarrier || 50}% 미만 하락 없으면 상환</div>
+                    <div style={{fontSize:13, marginTop:4, color: "#555"}}>리자드 배리어: {detailProduct.lizardBarrier || 55}% 미만 하락 없으면 상환</div>
                   </div>
                 )}
 
                 <div style={{fontSize:13,fontWeight:500,marginBottom:8}}>차수별 조기상환 및 만기 일정</div>
-                {/* ★ [수정] 만기를 포함한 모든 일정을 상세창에 표기 */}
+                {/* ★ 만기 평가일 및 배리어 정보 통합 표시 */}
                 {detailProduct.allSchedules.map((s, idx) => (
-                  <div key={idx} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"0.5px solid #eee", opacity: daysUntil(s.eval_date)<0?0.4:1}}>
-                    <div><span style={{fontSize:13, fontWeight:600}}>{s.period === "만기" ? "만기" : `${idx+1}차`} {fmt(s.eval_date)}</span><span style={{fontSize:12,color:"#888",marginLeft:8}}>지급 {fmt(s.payment_date)}</span></div>
+                  <div key={idx} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #eee", opacity: daysUntil(s.eval_date)<0?0.4:1}}>
+                    <div><span style={{fontSize:13, fontWeight:600}}>{s.period === "만기" ? "만기" : `${idx + 1}차`} {fmt(s.eval_date)}</span><span style={{fontSize:12,color:"#888",marginLeft:8}}>지급 {fmt(s.payment_date)}</span></div>
                     <div style={{fontSize:13,color:"#185FA5", fontWeight: 700}}>{s.barrier_pct}%</div>
                   </div>
                 ))}
