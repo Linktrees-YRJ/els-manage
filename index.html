@@ -215,6 +215,8 @@
       const [email,setEmail]=useState(""); const [pw,setPw]=useState(""); const [authErr,setAuthErr]=useState(""); const [authLoading,setAuthLoading]=useState(false);
       const isAdmin=session?.user?.email===ADMIN_EMAIL;
       const [db,setDb]=useState([]); const [dbLoading,setDbLoading]=useState(false);
+        // 바로 아래에 이 줄을 추가하세요 (이게 없어서 에러가 났던 것입니다)
+      const [schedules, setSchedules] = React.useState([]);
       const [accounts,setAccounts]=useState([]); const [activeTab,setActiveTab]=useState(0); const [accsLoading,setAccsLoading]=useState(false); const [saving,setSaving]=useState(false);
       const [editMode,setEditMode]=useState(false);
       const [addModal,setAddModal]=useState(null); const [checkedAdd,setCheckedAdd]=useState({}); const [selectedDelete,setSelectedDelete]=useState({});
@@ -251,64 +253,57 @@
       }, []);
 
         const loadDb = useCallback(async (token) => {
-          setDbLoading(true);
-          try {
-            const h = { "apikey": SB_KEY, "Authorization": `Bearer ${token}` };
+  if (!token) return; // 토큰이 없으면 실행하지 않음
+  setDbLoading(true);
+  try {
+    const h = { "apikey": SB_KEY, "Authorization": `Bearer ${token}` };
+
+    const [pRes, uRes, sRes] = await Promise.all([
+      fetch(`${SB_URL}/rest/v1/products?select=*&order=id.asc`, { headers: h }),
+      fetch(`${SB_URL}/rest/v1/underlyings?select=*`, { headers: h }),
+      fetch(`${SB_URL}/rest/v1/schedules?select=*&order=product_id,sort_order`, { headers: h })
+    ]);
+
+    const prods = await pRes.json();
+    const unders = await uRes.json();
+    const scheds = await sRes.json();
+
+    // 가져온 데이터를 바구니에 담기
+    if (Array.isArray(scheds)) setSchedules(scheds);
+
+    if (Array.isArray(prods)) {
+      const mappedDb = prods.map(p => {
+        const assets = Array.isArray(unders) ? unders.filter(u => String(u.product_id) === String(p.id)) : [];
+        const assetNames = assets.map(a => a.asset_name);
+        const initialPrices = {};
+        assets.forEach(a => { initialPrices[a.asset_name] = Number(a.initial_price) || 0; });
+        const early = Array.isArray(scheds) ? scheds.filter(s => String(s.product_id) === String(p.id) && s.period !== "만기") : [];
         
-            // 1. fetch를 사용하여 직접 데이터를 가져옵니다. (가장 안전한 방법)
-            const [pRes, uRes, sRes] = await Promise.all([
-              fetch(`${SB_URL}/rest/v1/products?select=*&order=id.asc`, { headers: h }),
-              fetch(`${SB_URL}/rest/v1/underlyings?select=*`, { headers: h }),
-              fetch(`${SB_URL}/rest/v1/schedules?select=*&order=product_id,sort_order`, { headers: h })
-            ]);
-        
-            const prods = await pRes.json();
-            const unders = await uRes.json();
-            const scheds = await sRes.json();
-        
-            console.log("[로그] 데이터 수신 성공:", { prods: prods.length, unders: unders.length, scheds: scheds.length });
-        
-            // 2. 전체 스케줄을 바구니에 담습니다.
-            if (Array.isArray(scheds)) setSchedules(scheds);
-        
-            if (Array.isArray(prods)) {
-              const mappedDb = prods.map(p => {
-                // ID가 숫자든 문자든 상관없이 비교하도록 String() 처리
-                const assets = Array.isArray(unders) ? unders.filter(u => String(u.product_id) === String(p.id)) : [];
-                const assetNames = assets.map(a => a.asset_name);
-                
-                const initialPrices = {};
-                assets.forEach(a => { initialPrices[a.asset_name] = Number(a.initial_price) || 0; });
-                
-                const early = Array.isArray(scheds) ? scheds.filter(s => String(s.product_id) === String(p.id) && s.period !== "만기") : [];
-                
-                return {
-                  id: p.id,
-                  name: p.name,
-                  assets: assetNames,
-                  annualRate: Number(p.annual_rate),
-                  maturityMonths: p.maturity_months,
-                  redemptionCycle: p.redemption_cycle,
-                  earlyBarriers: p.early_barriers || [],
-                  knockIn: Number(p.knock_in),
-                  issue_date: p.issue_date,
-                  maturity_date: p.maturity_date,
-                  initialPrices,
-                  evaluationDates: early.map(s => [s.eval_date, s.payment_date]),
-                  isLizard: p.is_lizard,
-                  is_ki_hit: p.is_ki_hit,
-                  _underlyings: assets // calcStatus에서 기준가를 찾기 위해 반드시 필요
-                };
-              });
-              
-              setDb(mappedDb); // 전체 상품 목록 저장
-              console.log("[로그] 상품 목록(db) 생성 완료:", mappedDb.length, "개");
-            }
-          } catch (e) {
-            console.error("[에러] 데이터를 불러오는 중 오류 발생:", e);
-          }
-          setDbLoading(false);
-        }, []);
+        return {
+          id: p.id,
+          name: p.name,
+          assets: assetNames,
+          annualRate: Number(p.annual_rate),
+          maturityMonths: p.maturity_months,
+          redemptionCycle: p.redemption_cycle,
+          earlyBarriers: p.early_barriers || [],
+          knockIn: Number(p.knock_in),
+          issue_date: p.issue_date,
+          maturity_date: p.maturity_date,
+          initialPrices,
+          evaluationDates: early.map(s => [s.eval_date, s.payment_date]),
+          isLizard: p.is_lizard,
+          is_ki_hit: p.is_ki_hit,
+          _underlyings: assets 
+        };
+      });
+      setDb(mappedDb);
+    }
+  } catch (e) {
+    console.error("데이터 로드 에러:", e);
+  }
+  setDbLoading(false);
+}, []);
 
       const loadAccounts=useCallback(async(token, userId)=>{
         setAccsLoading(true);
@@ -813,13 +808,14 @@
       );
     }
     ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
-    React.useEffect(() => {
-  if (session?.access_token) {
-    // 로그인 성공 시 상품 데이터와 시세를 모두 불러옵니다.
+// 이 덩어리를 찾아서 아래 코드로 완전히 교체하세요
+React.useEffect(() => {
+  // session이 정의되어 있고, 그 안에 access_token이 있을 때만 실행
+  if (typeof session !== 'undefined' && session && session.access_token) {
     loadDb(session.access_token);
     loadPricesFromDB(session.access_token);
   }
-}, [session]);
+}, [typeof session !== 'undefined' ? session : null]);
   </script>
 </body>
 </html>
