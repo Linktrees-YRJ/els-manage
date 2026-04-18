@@ -474,25 +474,65 @@
         setPricesLoading(false);
       }
 
-      function calcStatus(p){
-        const next=getNextEval(p); const idx=next?p.evaluationDates.findIndex(([e])=>e===next.date):p.evaluationDates.length-1;
-        const barrier=p.earlyBarriers[idx]??p.earlyBarriers[p.earlyBarriers.length-1];
-        const assetStatuses=p.assets.map(asset=>{
-          const cur=prices[asset]||null; const init=getInitPrice(p.id,asset);
-          const ratio=(cur&&init>0)?(cur/init)*100:null;
-          return{asset,cur,init,ratio,canRedeem:ratio!==null?ratio>=barrier:null,barrier};
-        });
-        const canRedeem = assetStatuses.every(a=>a.canRedeem===true);
-        const isKnockedIn = p.is_ki_hit || assetStatuses.some(a=>a.ratio !== null && a.ratio < p.knockIn);
-        let sText = "시세 대기", sBg = "#f9f9f9", sColor = "#aaa";
-        const hasPriceData = assetStatuses.every(a => a.ratio !== null);
-        if (hasPriceData) {
-          if (!isKnockedIn && canRedeem)      { sText = "조기상환 가능";    sBg = "#E1F5EE"; sColor = "#0F6E56"; }
-          else if (!isKnockedIn && !canRedeem){ sText = "순연 예상";        sBg = "#FFF4E5"; sColor = "#D97706"; }
-          else if (isKnockedIn && canRedeem)  { sText = "낙인터치 상환가능"; sBg = "#F3E8FF"; sColor = "#7E22CE"; }
-          else if (isKnockedIn && !canRedeem) { sText = "낙인터치 손실위험"; sBg = "#FEE2E2"; sColor = "#DC2626"; }
+      function calcStatus(p) {
+        const productSchedules = schedules.filter(s => s.product_id === String(p.id));
+        if (!productSchedules.length) return { sText: "데이터 없음", sBg: "#eee", sColor: "#999", assetStatuses: [] };
+      
+        const now = new Date();
+        // 1. 오늘 이후 가장 가까운 평가일 찾기
+        const future = productSchedules
+          .filter(s => new Date(s.eval_date) >= now)
+          .sort((a, b) => new Date(a.eval_date) - new Date(b.eval_date));
+      
+        if (!future.length) return { sText: "만기 평가중", sBg: "#eee", sColor: "#666", assetStatuses: [] };
+      
+        const nextDate = future[0].eval_date;
+        const currentSchedules = future.filter(s => s.eval_date === nextDate);
+        
+        // 2. 리자드 배리어 판단 로직
+        let barrier = 100;
+        let isLizardRound = false;
+      
+        if (p.is_lizard) {
+          // -2로 끝나는 리자드 스케줄이 있는지 확인
+          const lizardSched = currentSchedules.find(s => String(s.period).endsWith('-2'));
+          const normalSched = currentSchedules.find(s => String(s.period).endsWith('-1') || !String(s.period).includes('-'));
+          
+          if (lizardSched) {
+            isLizardRound = true;
+            // 일반 배리어와 리자드 배리어 중 더 낮은(유리한) 값을 사용
+            barrier = Math.min(lizardSched.barrier_pct || 100, normalSched?.barrier_pct || 100);
+          } else {
+            barrier = currentSchedules[0].barrier_pct || 100;
+          }
+        } else {
+          barrier = currentSchedules[0].barrier_pct || 100;
         }
-        return{assetStatuses, isKnockedIn, canRedeem, barrier, next, sText, sBg, sColor};
+      
+        // 3. 기초자산 비율 계산 및 상태 결정
+        const assetStatuses = p.assets.map(assetName => {
+          const cur = prices[assetName];
+          const init = p._underlyings?.find(u => u.asset_name === assetName)?.initial_price;
+          const ratio = (cur && init) ? (cur / init) * 100 : null;
+          return { asset: assetName, cur, init, ratio, barrier };
+        });
+      
+        const minRatio = Math.min(...assetStatuses.map(a => a.ratio || 100));
+        const isKiHit = p.is_ki_hit;
+      
+        let sText = ""; let sBg = ""; let sColor = "#fff";
+        if (!isKiHit) {
+          if (minRatio >= barrier) { sText = "조기상환 가능"; sBg = "#3498db"; }
+          else { sText = "순연 예상"; sBg = "#f1c40f"; sColor = "#000"; }
+        } else {
+          if (minRatio >= barrier) { sText = "낙인터치 상환가능"; sBg = "#9b59b6"; }
+          else { sText = "낙인터치 손실위험"; sBg = "#e74c3c"; }
+        }
+      
+        return { 
+          sText, sBg, sColor, assetStatuses, barrier, isLizardRound,
+          next: { date: nextDate, days: Math.ceil((new Date(nextDate) - now) / (1000 * 60 * 60 * 24)) }
+        };
       }
 
       const processedDashProducts = rawDashProducts.map(p => ({ p, st: calcStatus(p) }));
@@ -600,7 +640,8 @@
               {!editMode ? (<>
                 <div style={{display:"flex",gap:10,marginBottom:12}}><div style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>{acc.name} 총 가입금액</div><div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.total.toLocaleString()}만</div></div><div style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>평균 수익률</div><div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.rate.toFixed(1)}%</div></div></div>
                 {myProducts.length===0 && <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>가입 상품이 없습니다.<br/>수정 버튼을 눌러 상품을 추가하세요.</div>}
-                {myProducts.map(p=>{const st=calcStatus(p); return(<div key={p.id} style={{...C.card,cursor:"pointer"}} onClick={()=>setDetailProduct(p)}><div style={{display:"flex",justifyContent:"space-between"}}><div><span style={{fontSize:15,fontWeight:500}}>{getShortName(p.name)}</span><span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:11,fontWeight:500,background:st.sBg,color:st.sColor,marginLeft:6}}>{st.sText}</span></div><span style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>{(acc.products[p.id]||0).toLocaleString()}만원</span></div><div style={{fontSize:12,color:"#888",marginTop:6}}>{p.assets.join("/")} | 연 {p.annualRate}% | KI {p.knockIn}%</div></div>);})}
+                {myProducts.map(p=>{const st=calcStatus(p); return(<div key={p.id} style={{...C.card,cursor:"pointer"}} onClick={()=>setDetailProduct(p)}><div style={{display:"flex",justifyContent:"space-between"}}><div><span style={{fontSize:15,fontWeight:500}}><span style={{fontSize:15,fontWeight:500}}>{getShortName(p.name)}</span>
+                {p.is_lizard && <span style={{fontSize:10, color:'#e74c3c', border:'1px solid #e74c3c', borderRadius:4, padding:'1px 4px', fontWeight:'bold', marginLeft:6, verticalAlign:'middle'}}>리자드</span>}</span><span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:11,fontWeight:500,background:st.sBg,color:st.sColor,marginLeft:6}}>{st.sText}</span></div><span style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>{(acc.products[p.id]||0).toLocaleString()}만원</span></div><div style={{fontSize:12,color:"#888",marginTop:6}}>{p.assets.join("/")} | 연 {p.annualRate}% | KI {p.knockIn}%</div></div>);})}
                 <button style={{...C.btnP,width:"100%",marginTop:10}} onClick={()=>setEditMode(true)}>수정</button>
               </>) : (<>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><span style={{fontSize:15,fontWeight:500}}>수정 모드</span><div style={{display:"flex",gap:8}}><button style={C.btn} onClick={()=>{const allS=myProducts.length>0&&myProducts.every(p=>selectedDelete[p.id]); if(allS)setSelectedDelete({}); else{const n={};myProducts.forEach(p=>n[p.id]=true);setSelectedDelete(n);}}}>{myProducts.every(p=>selectedDelete[p.id])?"전체 해제":"전체 선택"}</button>{Object.values(selectedDelete).some(Boolean)&&<button style={C.btnD} onClick={deleteSelected}>선택 삭제</button>}<button style={C.btn} onClick={()=>{setEditMode(false);setSelectedDelete({});}}>취소</button></div></div>
@@ -619,6 +660,11 @@
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                     <div><span style={{fontSize:15,fontWeight:500}}>{getShortName(p.name)}</span>{dashView==="all" && (<span style={{display:"inline-flex",gap:4,marginLeft:8,verticalAlign:"middle"}}>{accounts.filter(a=>(a.products[p.id]||0)>0).map(a=>(<span key={a.id} style={{fontSize:10,padding:"2px 6px",background:"#E2E8F0",color:"#475569",borderRadius:4}}>{a.name}</span>))}</span>)}<div style={{marginTop:4}}>{st.next&&<span style={{fontSize:12,color:"#888"}}>D-{st.next.days} ({fmt(st.next.date)})</span>}</div></div>
                     <span style={{display:"inline-block",padding:"3px 10px",borderRadius:6,fontSize:12,fontWeight:500,background:st.sBg,color:st.sColor}}>{st.sText}</span>
+                    {st.isLizardRound && (
+                      <div style={{fontSize:11, color:'#e74c3c', marginTop:4, fontWeight:'bold', textAlign:'right'}}>
+                        ★ 리자드 배리어 적용: {st.barrier}%
+                      </div>
+                    )}
                   </div>
                   {st.assetStatuses.map(as=>(<div key={as.asset} style={{marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",fontSize:13}}><span>{as.asset}</span><span style={{color:"#666"}}>기준가: {as.init ? as.init.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</span></div><RatioBar ratio={as.ratio} init={as.init} cur={as.cur} barrier={as.barrier} knockIn={p.knockIn}/></div>))}
                 </div>
