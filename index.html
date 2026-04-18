@@ -31,7 +31,6 @@
     const SB_URL = "https://ignwckfmtkczginohdyl.supabase.co";
     const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlnbndja2ZtdGtjemdpbm9oZHlsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0MDU0MDQsImV4cCI6MjA5MTk4MTQwNH0.WpFZ7mfGeafwulE1Q64jJeALs9NDa32wyEtUl4pVYoA";
     const ADMIN_EMAIL = "jaeyeoplee2@gmail.com";
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbz8AZrPUFy55gwPvM8COb4GExsVtCgmdtXpmCn31BengXymAPz2lNvp0TZMcUtNvG0z/exec";
 
     const sbH = (token) => ({
       "Content-Type":"application/json",
@@ -113,7 +112,7 @@
           initialPrices[norm] = parseNum(a.initial_price); 
         });
 
-        // ★ 리자드 배리어 (L50) 추출 로직
+        // ★ 리자드 배리어 (L50) 추출 및 barriers 텍스트 정제
         const rawBarriers = String(p.barriers || "");
         const lizardMatch = rawBarriers.match(/\(L(\d+)\)/);
         const lizardBarrier = lizardMatch ? parseNum(lizardMatch[1]) : 0;
@@ -122,7 +121,7 @@
         const earlyRows=sched.filter(s=>String(s.period)!=="만기");
         const evaluationDates=earlyRows.map(s=>[formatExcelDate(s.eval_date)||" ",formatExcelDate(s.payment_date)||" "]);
         
-        // 조기상환 배리어 정제 (괄호 제거)
+        // 조기상환 배리어에서 리자드 괄호 제거 후 배열화
         let earlyBarriers = rawBarriers.replace(/\(L\d+\)/g, "").split(/[-,]/).map(parseNum).filter(n => n > 0);
         
         let maturityMonths = 36;
@@ -138,10 +137,15 @@
           maturityMonths = parseInt(mm[1]);
         }
 
+        let redemptionCycle = 6;
+        const cycleMatch = tm.match(/(\d+)\s*개월\s*주기/);
+        if (cycleMatch) redemptionCycle = parseInt(cycleMatch[1]);
+        else if(tm.includes("4개월")) redemptionCycle=4; else if(tm.includes("3개월")) redemptionCycle=3;
+
         const isLizard=!!(p.special_note&&String(p.special_note).includes("리자드"));
         return{
           id:code, name:String(p.full_name||code), assets:assetNames, annualRate:parseNum(p.max_annual_yield), 
-          maturityMonths, earlyBarriers, knockIn:parseNum(p.ki_level), // ★ 낙인 수치 직접 파싱
+          maturityMonths, redemptionCycle, earlyBarriers, knockIn:parseNum(p.ki_level), // ★ 낙인 수치 직접 파싱
           issueDate:formatExcelDate(p.issue_date), maturityDate:formatExcelDate(p.maturity_date), 
           initialPrices, evaluationDates, isLizard, lizardBarrier, _underlyings:assets, _schedules:sched
         };
@@ -237,11 +241,11 @@
             setDb(prods.map(p=>{
               const assets=unders.filter(u=>u.product_id===p.id); const assetNames=assets.map(a=>a.asset_name);
               const initialPrices={}; assets.forEach(a=>{initialPrices[a.asset_name]=Number(a.initial_price)||0;});
-              const allScheds = scheds.filter(s=>s.product_id===p.id); // 모든 일정(만기 포함) 보관
+              const allScheds = scheds.filter(s=>s.product_id===p.id); // ★ 만기 포함 모든 일정 보관
               const early=allScheds.filter(s=>String(s.period)!=="만기");
               return{
                 id:p.id,name:p.name,assets:assetNames,annualRate:Number(p.annual_rate),maturityMonths:p.maturity_months,
-                earlyBarriers:p.early_barriers||[],knockIn:Number(p.knock_in),
+                redemptionCycle:p.redemption_cycle,earlyBarriers:p.early_barriers||[],knockIn:Number(p.knock_in),
                 issue_date:p.issue_date,maturity_date:p.maturity_date,initialPrices,
                 evaluationDates:early.map(s=>[s.eval_date,s.payment_date]),
                 allSchedules: allScheds, isLizard:p.is_lizard,is_ki_hit:p.is_ki_hit, lizardBarrier: p.lizard_barrier_1
@@ -282,7 +286,7 @@
         try{
           const formattedEmail = email.includes('@') ? email : `${email}@els.local`;
           const data=await sb.signUp(formattedEmail,pw);
-          if(data.user&&!data.error)setAuthErr("✓ 가입 완료!"); else setAuthErr("가입 실패");
+          if(data.user&&!data.error)setAuthErr("✓ 가입 완료!"); else setAuthErr(data.error_description||data.message||"가입 실패");
         }catch(e){}
         setAuthLoading(false);
       }
@@ -327,7 +331,7 @@
           const token=session.access_token; const h={...sbH(token),"Prefer":"return=minimal"};
           async function dbFetch(url, method, body) { await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined }); }
           await dbFetch(`${SB_URL}/rest/v1/schedules?id=gt.0`, "DELETE"); await dbFetch(`${SB_URL}/rest/v1/underlyings?id=gt.0`, "DELETE"); await dbFetch(`${SB_URL}/rest/v1/products?id=neq.NONE`, "DELETE");
-          const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,early_barriers:p.earlyBarriers,knock_in:p.knockIn,issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard, lizard_barrier_1: p.lizardBarrier}));
+          const prodRows=parsed.map(p=>({id:p.id,name:p.name,annual_rate:p.annualRate,maturity_months:p.maturityMonths,redemption_cycle:p.redemptionCycle,early_barriers:p.earlyBarriers,knock_in:p.knockIn,issue_date:p.issueDate,maturity_date:p.maturityDate,is_lizard:p.isLizard, lizard_barrier_1: p.lizardBarrier}));
           await dbFetch(`${SB_URL}/rest/v1/products`, "POST", prodRows);
           const underRows=parsed.flatMap(p=>p._underlyings.map(u=>({product_id:p.id, asset_name:u.asset_name, initial_price:parseNum(u.initial_price)})));
           if(underRows.length>0) await dbFetch(`${SB_URL}/rest/v1/underlyings`, "POST", underRows);
@@ -339,18 +343,28 @@
         setXlsxLoading(false);
       }
 
+      const acc=accounts[activeTab]||accounts[0]||{id:null,name:"",products:{}};
+      const myProductIds=Object.keys(acc.products||{}).map(String); const myProducts=db.filter(p=>myProductIds.includes(String(p.id)));
+
+      function setAmt(pid,val){setAccounts(prev=>prev.map((a,i)=>i===activeTab?{...a,products:{...a.products,[pid]:Math.max(0,val)}}:a));}
+      function addAmtFn(pid,delta){setAccounts(prev=>prev.map((a,i)=>i===activeTab?{...a,products:{...a.products,[pid]:Math.max(0,(a.products[pid]||0)+delta)}}:a));}
+      function openAddModal(mode){const init={};db.forEach(p=>{if(!myProductIds.includes(String(p.id)))init[p.id]=true;});setCheckedAdd(init);setTextInput("");setTextMatched(null);setAddModal(mode);}
+      function confirmAdd(){const toAdd=Object.keys(checkedAdd).filter(k=>checkedAdd[k]);setAccounts(prev=>prev.map((a,i)=>{if(i!==activeTab)return a;const np={...a.products};toAdd.forEach(id=>{if(!(String(id) in np))np[String(id)]=0;});return{...a,products:np};}));setAddModal(null);}
+      function deleteSelected(){setAccounts(prev=>prev.map((a,i)=>{if(i!==activeTab)return a;const np={...a.products};Object.keys(selectedDelete).filter(k=>selectedDelete[k]).forEach(k=>delete np[k]);return{...a,products:np};}));setSelectedDelete({});}
+      function handleTextMatch(){const nums=textInput.match(/\d+/g)||[];const matched=db.filter(p=>{const pn=p.name.match(/\d+/g)||[];return nums.some(n=>pn.includes(n));}).filter(p=>!myProductIds.includes(String(p.id)));const init={};matched.forEach(p=>init[p.id]=true);setCheckedAdd(init);setTextMatched(matched);}
+      function getInitPrice(pid,asset){return db.find(p=>String(p.id)===String(pid))?.initialPrices[asset]??0;}
+
       function calcStatus(p){
         const next=getNextEval(p); const idx=next?p.evaluationDates.findIndex(([e])=>e===next.date):p.evaluationDates.length-1;
         const barrier=p.earlyBarriers[idx]??p.earlyBarriers[p.earlyBarriers.length-1];
         const assetStatuses=p.assets.map(asset=>{
-          const cur=prices[asset]||null; const init=p.initialPrices[asset];
+          const cur=prices[asset]||null; const init=getInitPrice(p.id,asset);
           const ratio=(cur&&init>0)?(cur/init)*100:null;
           return{asset,cur,init,ratio,canRedeem:ratio!==null?ratio>=barrier:null,barrier};
         });
         const hasPriceData = assetStatuses.every(a => a.ratio !== null);
         const canRedeem = hasPriceData && assetStatuses.every(a=>a.canRedeem===true);
         
-        // ★ 리자드 상환 판별 로직
         let isLizardRedeem = false;
         if (p.isLizard && idx === 2 && !canRedeem && hasPriceData) {
           if (assetStatuses.every(as => as.ratio >= (p.lizardBarrier || 55))) isLizardRedeem = true;
@@ -366,6 +380,15 @@
         }
         return{assetStatuses, isKnockedIn, canRedeem, barrier, next, sText, sBg, sColor};
       }
+
+      const calcAccMetrics = (accObj) => {
+        const pIds = Object.keys(accObj.products||{}).map(String);
+        const prods = db.filter(p => pIds.includes(String(p.id)));
+        const total = prods.reduce((s,p) => s + (accObj.products[p.id]||0), 0);
+        const rate = total > 0 ? prods.reduce((s,p) => s + (accObj.products[p.id]||0) * p.annualRate, 0) / total : 0;
+        return { total, rate };
+      };
+      const currentAccMetrics = calcAccMetrics(acc);
 
       const C={
         wrap:{fontFamily:"-apple-system,BlinkMacSystemFont,sans-serif",color:"#111",minHeight:"100vh",background:"#f5f5f5"},
@@ -383,11 +406,22 @@
           <div style={{...C.card,width:340,margin:"0 auto"}}>
             <h2 style={{fontSize:20,fontWeight:500,marginBottom:16}}>ELS 관리 시스템</h2>
             <div style={{display:"flex",marginBottom:20,border:"1px solid #ddd",borderRadius:8,overflow:"hidden"}}>
-              {[["login","로그인"],["signup","회원가입"]].map(([key,label])=>(<button key={key} onClick={()=>setAuthTab(key)} style={{flex:1,padding:"8px",border:"none",background:authTab===key?"#185FA5":"transparent",color:authTab===key?"#fff":"#666",fontSize:14}}>{label}</button>))}
+              {[["login","로그인"],["signup","회원가입"]].map(([key,label])=>(<button key={key} onClick={()=>{setAuthTab(key)}} style={{flex:1,padding:"8px",border:"none",background:authTab===key?"#185FA5":"transparent",color:authTab===key?"#fff":"#666",fontSize:14}}>{label}</button>))}
             </div>
             <div style={{marginBottom:12}}><label style={C.label}>아이디</label><input style={C.input} value={email} onChange={e=>setEmail(e.target.value)} placeholder="아이디"/></div>
             <div style={{marginBottom:16}}><label style={C.label}>비밀번호</label><input style={C.input} type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="비밀번호"/></div>
             <button style={{...C.btnP,width:"100%",padding:10}} onClick={authTab==="login"?handleLogin:handleSignUp}>{authTab==="login"?"로그인":"회원가입"}</button>
+          </div>
+        </div>
+      );
+
+      if(screen==="admin") return (
+        <div style={C.wrap}>
+          <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}><span style={{fontSize:17,fontWeight:500}}>관리자 기능</span><button style={C.btn} onClick={()=>setScreen("main")}>메인으로</button></div>
+          <div style={{padding:16,maxWidth:800,margin:"0 auto"}}>
+            <div style={C.card}><span style={{fontSize:15,fontWeight:500}}>엑셀 업데이트</span><label style={{...C.btnP,display:"inline-block",marginTop:10,cursor:"pointer"}}>📂 엑셀 업로드<input type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleXlsxUpload}/></label>
+              {xlsxStatus&&<div style={{marginTop:12,padding:"10px 14px",borderRadius:8,background:xlsxStatus.ok?"#E1F5EE":"#FCEBEB",color:xlsxStatus.ok?"#0F6E56":"#DC2626"}}>{xlsxStatus.msg}</div>}
+            </div>
           </div>
         </div>
       );
@@ -398,7 +432,7 @@
             <div style={{display:"flex",gap:8}}>{isAdmin&&<button style={{...C.btn,color:"#185FA5"}} onClick={()=>setScreen("admin")}>관리자</button>}<button style={C.btn} onClick={handleLogout}>로그아웃</button></div>
           </div>
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e5e5",padding:"0 16px",display:"flex",alignItems:"center",gap:4,overflowX:"auto"}}>
-            {accounts.map((a,i)=>(<div key={a.id} onClick={()=>setActiveTab(i)} style={{padding:"10px 14px",cursor:"pointer",fontSize:14,borderBottom:i===activeTab?"2px solid #185FA5":"2px solid transparent",color:i===activeTab?"#185FA5":"#888",whiteSpace:"nowrap"}}>{a.name}</div>))}
+            {accounts.map((a,i)=>(<div key={a.id} onClick={()=>{setActiveTab(i);setEditMode(false);}} style={{padding:"10px 14px",cursor:"pointer",fontSize:14,borderBottom:i===activeTab?"2px solid #185FA5":"2px solid transparent",color:i===activeTab?"#185FA5":"#888",whiteSpace:"nowrap"}}>{a.name}</div>))}
             <button style={{...C.btn,padding:"4px 10px",fontSize:20,border:"none",color:"#888"}} onClick={addAccount}>+</button>
             <button style={{...C.btn,padding:"4px 8px",fontSize:12}} onClick={dupAccount}>복제</button>
             {accounts.length>1&&<button style={{...C.btn,padding:"4px 8px",fontSize:12,color:"#DC2626"}} onClick={delAccount}>삭제</button>}
@@ -407,17 +441,20 @@
             {[["list","상품 목록"],["dashboard","평가 현황판"]].map(([key,label])=>(<button key={key} onClick={()=>setMainTab(key)} style={{padding:"10px 16px",fontSize:14,border:"none",borderBottom:mainTab===key?"2px solid #185FA5":"2px solid transparent",background:"transparent",color:mainTab===key?"#185FA5":"#888"}}>{label}</button>))}
           </div>
           <div style={{padding:16,maxWidth:800,margin:"0 auto"}}>
-            {mainTab==="list" && myProducts.map(p=>{
-              const st=calcStatus(p); return(
-                <div key={p.id} style={{...C.card,cursor:"pointer"}} onClick={()=>setDetailProduct(p)}>
-                  <div style={{display:"flex",justifyContent:"space-between"}}>
-                    <div><span style={{fontSize:15,fontWeight:500}}>{getShortName(p.name)}</span><span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:11,fontWeight:500,background:st.sBg,color:st.sColor,marginLeft:6}}>{st.sText}</span></div>
-                    <span style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>{(acc.products[p.id]||0).toLocaleString()}만</span>
+            {mainTab==="list" ? (<>
+              <div style={{display:"flex",gap:10,marginBottom:12}}><div style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>{acc.name} 총 가입금액</div><div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.total.toLocaleString()}만</div></div><div style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>평균 수익률</div><div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.rate.toFixed(1)}%</div></div></div>
+              {myProducts.map(p=>{
+                const st=calcStatus(p); return(
+                  <div key={p.id} style={{...C.card,cursor:"pointer"}} onClick={()=>setDetailProduct(p)}>
+                    <div style={{display:"flex",justifyContent:"space-between"}}>
+                      <div><span style={{fontSize:15,fontWeight:500}}>{getShortName(p.name)}</span><span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:11,fontWeight:500,background:st.sBg,color:st.sColor,marginLeft:6}}>{st.sText}</span></div>
+                      <span style={{fontSize:15,fontWeight:500,color:"#185FA5"}}>{(acc.products[p.id]||0).toLocaleString()}만</span>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-            {mainTab==="dashboard" && myProducts.map(p => {
+                );
+              })}
+              <button style={{...C.btnP,width:"100%",marginTop:10}} onClick={()=>setEditMode(true)}>수정</button>
+            </>) : myProducts.map(p => {
               const st=calcStatus(p); return (
                 <div key={p.id} style={C.card}><div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}><div style={{fontWeight:500}}>{getShortName(p.name)}</div><span style={{fontSize:12,padding:"3px 8px",borderRadius:6,background:st.sBg,color:st.sColor}}>{st.sText}</span></div>
                   {st.assetStatuses.map(as=>(<RatioBar key={as.asset} ratio={as.ratio} init={as.init} cur={as.cur} barrier={st.barrier} knockIn={p.knockIn}/>))}
@@ -426,32 +463,40 @@
             })}
           </div>
 
+          {addModal&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",zIndex:100}}>
+              <div style={{background:"#fff",width:"100%",maxHeight:"85vh",overflowY:"auto",borderRadius:"16px 16px 0 0",padding:20}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><span style={{fontSize:16,fontWeight:500}}>상품 추가</span><button style={C.btn} onClick={()=>setAddModal(null)}>닫기</button></div>
+                <div style={{display:"flex",gap:8,marginBottom:16}}><button style={{...C.btn,background:addModal==="list"?"#B5D4F4":undefined}} onClick={()=>setAddModal("list")}>전체 목록</button><button style={{...C.btn,background:addModal==="text"?"#B5D4F4":undefined}} onClick={()=>setAddModal("text")}>텍스트 검색</button></div>
+                {addModal==="text"&&(<div style={{marginBottom:12}}><textarea style={{...C.input,height:80}} placeholder="상품명 또는 회차 입력" value={textInput} onChange={e=>setTextInput(e.target.value)}/><button style={{...C.btnP,marginTop:8}} onClick={handleTextMatch}>검색</button></div>)}
+                {(addModal==="list"||textMatched!==null)&&(()=>{ const list=addModal==="list"?db.filter(p=>!myProductIds.includes(String(p.id))):textMatched; return(<>
+                  {list.map(p=>(<div key={p.id} onClick={()=>setCheckedAdd(v=>({...v,[p.id]:!v[p.id]}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"0.5px solid #eee",cursor:"pointer"}}><input type="checkbox" checked={!!checkedAdd[p.id]} style={{width:16,height:16}}/><div style={{flex:1}}><div style={{fontSize:14,fontWeight:500}}>{p.name}</div><div style={{fontSize:12,color:"#666"}}>{p.assets.join(" / ")} | 연 {p.annualRate}%</div></div></div>))}
+                  <button style={{...C.btnP,width:"100%",marginTop:16}} onClick={confirmAdd}>확인</button></>); })()}
+              </div>
+            </div>
+          )}
+
+          {editMode && (
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",zIndex:100}}>
+              <div style={{background:"#fff",width:"100%",maxHeight:"85vh",overflowY:"auto",borderRadius:"16px 16px 0 0",padding:20}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><span style={{fontSize:16,fontWeight:500}}>가입 금액 수정</span><div style={{display:"flex",gap:8}}>{Object.values(selectedDelete).some(Boolean)&&<button style={C.btnD} onClick={deleteSelected}>선택 삭제</button>}<button style={C.btn} onClick={()=>setEditMode(false)}>취소</button></div></div>
+                {myProducts.map(p=>(<div key={p.id} style={C.card}><div onClick={()=>setSelectedDelete(prev=>({...prev,[p.id]:!prev[p.id]}))} style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,cursor:"pointer"}}><input type="checkbox" checked={!!selectedDelete[p.id]} style={{width:16,height:16}}/><span style={{fontSize:14,fontWeight:500,flex:1}}>{getShortName(p.name)}</span></div><div style={{display:"flex",flexDirection:"column",gap:8}}><div style={{display:"flex",alignItems:"stretch",border:"1px solid #888",borderRadius:8,overflow:"hidden"}}><input type="number" value={acc.products[p.id]||0} onChange={e=>setAmt(p.id,parseInt(e.target.value)||0)} style={{flex:1,minWidth:0,padding:"9px 12px",fontSize:15,border:"none",outline:"none"}}/><span style={{display:"flex",alignItems:"center",padding:"0 12px",fontSize:14,background:"#f5f5f5"}}>만원</span></div><div style={{display:"flex",gap:6}}>{[["+100만",100],["+10만",10],["+1만",1]].map(([label,val])=>(<button key={label} onClick={()=>addAmtFn(p.id,val)} style={{flex:1,padding:"8px 0",fontSize:13,border:"1px solid #ccc",borderRadius:6,background:"#fff"}}>{label}</button>))}<button onClick={()=>setAmt(p.id,0)} style={{flex:1,padding:"8px 0",fontSize:13,border:"1px solid #FCA5A5",borderRadius:6,background:"#FEF2F2",color:"#DC2626"}}>초기화</button></div></div></div>))}
+                <button style={{...C.btn,width:"100%",marginBottom:8}} onClick={()=>openAddModal("list")}>+ 상품 추가</button>
+                <button style={{...C.btnP,width:"100%"}} onClick={async()=>{await saveAccountProducts(acc.id,acc.products);setEditMode(false);}}>저장 완료</button>
+              </div>
+            </div>
+          )}
+
           {detailProduct&&(
             <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",zIndex:100}}>
               <div style={{background:"#fff",width:"100%",maxHeight:"85vh",overflowY:"auto",borderRadius:"16px 16px 0 0",padding:20}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><span style={{fontSize:16,fontWeight:500}}>{getShortName(detailProduct.name)}</span><button style={C.btn} onClick={()=>setDetailProduct(null)}>닫기</button></div>
-                
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-                  <div style={{background:"#f5f7fa",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:12,color:"#666"}}>낙인배리어</div><div style={{fontWeight:700}}>{detailProduct.knockIn}%</div></div>
-                  <div style={{background:"#f5f7fa",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:12,color:"#666"}}>발행일</div><div style={{fontWeight:700}}>{fmt(detailProduct.issue_date)}</div></div>
-                  <div style={{background:"#f5f7fa",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:12,color:"#666"}}>만기일</div><div style={{fontWeight:700}}>{fmt(detailProduct.maturity_date)}</div></div>
-                </div>
-
-                {detailProduct.isLizard && (
-                  <div style={{background:"#fdf2f8", border:"1px solid #f9a8d4", padding:12, borderRadius:8, marginBottom:16}}>
-                    <div style={{fontSize:12, color:"#db2777", fontWeight:700}}>🦎 리자드 조건</div>
-                    <div style={{fontSize:13, marginTop:4}}>리자드 배리어: {detailProduct.lizardBarrier}% 미만 하락 없으면 상환</div>
-                  </div>
-                )}
-
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>{[["연 수익률",detailProduct.annualRate+"%"],["낙인배리어",detailProduct.knockIn+"%"],["발행일",fmt(detailProduct.issue_date)],["만기일",fmt(detailProduct.maturity_date)]].map(([k,v])=>(<div key={k} style={{background:"#f5f7fa",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:12,color:"#666"}}>{k}</div><div style={{fontSize:14,fontWeight:500,marginTop:2}}>{v}</div></div>))}</div>
+                {detailProduct.isLizard && <div style={{background:"#fdf2f8", border:"1px solid #f9a8d4", padding:12, borderRadius:8, marginBottom:16}}><div style={{fontSize:12, color:"#db2777", fontWeight:700}}>🦎 리자드 조건</div><div style={{fontSize:13, marginTop:4}}>리자드 배리어: {detailProduct.lizardBarrier || 55}% 미만 하락 없으면 상환</div></div>}
                 <div style={{fontSize:13,fontWeight:500,marginBottom:8}}>상세 평가 일정 (만기 포함)</div>
-                {/* ★ 만기를 포함한 모든 일정을 표기 */}
                 {detailProduct.allSchedules.map((s, idx) => (
                   <div key={idx} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid #eee", opacity: daysUntil(s.eval_date) < 0 ? 0.4 : 1}}>
-                    <div>
-                      <span style={{fontSize:13, fontWeight:600}}>{s.period === "만기" ? "만기" : `${idx + 1}차`}</span>
-                      <span style={{fontSize:12, color:"#888", marginLeft:8}}>{fmt(s.eval_date)} (지급: {fmt(s.payment_date)})</span>
-                    </div>
+                    <div><span style={{fontSize:13, fontWeight:600}}>{s.period === "만기" ? "만기" : `${idx + 1}차`} {fmt(s.eval_date)}</span><span style={{fontSize:12, color:"#888", marginLeft:8}}>지급 {fmt(s.payment_date)}</span></div>
                     <div style={{fontSize:13, color:"#185FA5", fontWeight:700}}>{s.barrier_pct}%</div>
                   </div>
                 ))}
