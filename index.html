@@ -299,6 +299,33 @@
           _underlyings: assets 
         };
       });
+      // --- 테스트용 샘플 데이터 시작 ---
+const sampleProducts = [
+  {
+    id: "sample-ki-safe",
+    name: "[테스트] 낙인터치 상환가능 상품",
+    assets: ["KOSPI200"],
+    annualRate: 10,
+    is_ki_hit: true, // 낙인터치 발생 시뮬레이션
+    is_lizard: false,
+    _underlyings: [{ asset_name: "KOSPI200", initial_price: 100 }],
+    initialPrices: { "KOSPI200": 100 }
+  },
+  {
+    id: "sample-ki-danger",
+    name: "[테스트] 낙인터치 손실위험 상품",
+    assets: ["S&P500"],
+    annualRate: 12,
+    is_ki_hit: true, // 낙인터치 발생 시뮬레이션
+    is_lizard: false,
+    _underlyings: [{ asset_name: "S&P500", initial_price: 100 }],
+    initialPrices: { "S&P500": 100 }
+  }
+];
+
+// 기존에 가져온 상품 목록 뒤에 샘플 상품을 합칩니다.
+mappedDb.push(...sampleProducts);
+// --- 테스트용 샘플 데이터 끝 ---
       setDb(mappedDb);
     }
   } catch (e) {
