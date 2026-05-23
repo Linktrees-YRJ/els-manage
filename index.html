@@ -791,13 +791,6 @@ let sText = ""; let sBg = ""; let sColor = "";
           )}
         </div>
       );
-    }
-    ReactDOM.createRoot(document.getElementById("root")).render(<App/>)}
-
-
-          
-        </div>
-      );
 
       return (
         <div style={C.wrap}>
@@ -993,7 +986,10 @@ let sText = ""; let sBg = ""; let sColor = "";
             </div>
           )}
 
-          
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 // 이 덩어리를 찾아서 아래 코드로 완전히 교체하세요
 React.useEffect(() => {
   // session이 정의되어 있고, 그 안에 access_token이 있을 때만 실행
