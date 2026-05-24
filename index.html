@@ -834,7 +834,48 @@ let sText = ""; let sBg = ""; let sColor = "";
           <div style={{padding:16,maxWidth:800,margin:"0 auto"}}>
             {mainTab==="list"&&(<>
               {!editMode ? (<>
-                <div style={{display:"flex",gap:10,marginBottom:12}}><div style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>{acc.name} 총 가입금액</div><div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.total.toLocaleString()}만</div></div><div style={C.metricCard}><div style={{fontSize:12,color:"#888"}}>평균 수익률</div><div style={{fontSize:20,fontWeight:500}}>{currentAccMetrics.rate.toFixed(1)}%</div></div></div>
+                {(()=>{
+                  const statusGroups = [
+                    { key:"조기상환 가능", color:"#1D9E75" },
+                    { key:"순연 예상", color:"#EF9F27" },
+                    { key:"낙인터치 상환가능", color:"#7F77DD" },
+                    { key:"낙인터치 손실위험", color:"#E24B4A" },
+                    { key:"상환 완료", color:"#888780" },
+                  ];
+                  const groupMetrics = statusGroups.map(g => {
+                    const prods = myProducts.filter(p => {
+                      if (g.key === "상환 완료") return p.is_redeemed;
+                      if (p.is_redeemed) return false;
+                      return calcStatus(p).sText === g.key;
+                    });
+                    const total = prods.reduce((s,p) => s + (acc.products[p.id]||0), 0);
+                    const rate = total > 0 ? prods.reduce((s,p) => s + (acc.products[p.id]||0) * p.annualRate, 0) / total : null;
+                    return { ...g, total, rate };
+                  });
+                  return (
+                    <div style={{...C.card, padding:"12px 16px", marginBottom:12}}>
+                      <div style={{display:"flex", gap:12, alignItems:"stretch"}}>
+                        <div style={{display:"flex", flexDirection:"column", justifyContent:"center", flex:2}}>
+                          <div style={{fontSize:11, color:"#888", marginBottom:2}}>{acc.name} 총 가입금액</div>
+                          <div style={{fontSize:24, fontWeight:500, marginBottom:6}}>{currentAccMetrics.total.toLocaleString()}만</div>
+                          <div style={{fontSize:11, color:"#888"}}>평균 수익률</div>
+                          <div style={{fontSize:18, fontWeight:500}}>{currentAccMetrics.rate.toFixed(1)}%</div>
+                        </div>
+                        <div style={{width:"0.5px", background:"#e5e5e5", flexShrink:0}}></div>
+                        <div style={{flex:3, display:"flex", flexDirection:"column", gap:4, justifyContent:"center"}}>
+                          {groupMetrics.map(g => (
+                            <div key={g.key} style={{display:"flex", alignItems:"center", gap:5}}>
+                              <span style={{width:6, height:6, borderRadius:"50%", background:g.color, flexShrink:0, display:"inline-block"}}></span>
+                              <span style={{fontSize:11, color:"#888", flex:1}}>{g.key}</span>
+                              <span style={{fontSize:12, fontWeight:500}}>{g.total > 0 ? g.total.toLocaleString()+"만" : "—"}</span>
+                              <span style={{fontSize:11, color:"#888", minWidth:34, textAlign:"right"}}>{g.rate !== null ? (g.key==="상환 완료" && g.rate >= 0 ? "+" : "") + g.rate.toFixed(1)+"%" : "—"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
                 {myProducts.length===0 && <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>가입 상품이 없습니다.<br/>수정 버튼을 눌러 상품을 추가하세요.</div>}
 {myProducts.map(p => {
   const st = p.is_redeemed
