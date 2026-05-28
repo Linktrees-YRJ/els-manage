@@ -964,7 +964,7 @@ let sText = ""; let sBg = ""; let sColor = "";
               {filteredDashProducts.length===0 && <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>해당 조건에 맞는 상품이 없습니다.</div>}
 
 {displayMode === "visual" && filteredDashProducts.map(({p, st}) => (
-  <div key={p.id} style={{...C.card, opacity: p.is_redeemed ? 0.85 : 1}}>
+  <div key={p.id} style={{...C.card, opacity: p.is_redeemed ? 0.85 : 1, cursor:"pointer"}} onClick={()=>setDetailProduct(p)}>
     <div style={{display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10}}>
       <div>
         <span style={{fontSize: 15, fontWeight: 500}}>{getShortName(p.name)}</span>
@@ -1009,7 +1009,7 @@ let sText = ""; let sBg = ""; let sColor = "";
                     <thead><tr><th>상품명</th><th>다음 평가일</th><th>기초자산 (현재가/비율)</th><th>배리어/낙인 기준가</th><th>평가 상태</th></tr></thead>
                     <tbody>
                       {filteredDashProducts.map(({p, st}) => (
-                        <tr key={p.id}>
+                        <tr key={p.id} style={{cursor:"pointer"}} onClick={()=>setDetailProduct(p)}>
                           <td style={{fontWeight:500}}>
   {getShortName(p.name)}
   {(p.is_lizard || p.isLizard) && (
