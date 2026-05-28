@@ -647,6 +647,13 @@ let sText = ""; let sBg = ""; let sColor = "";
         const { total, rate } = calcFilterMetrics(filteredDashProducts, a);
         return { name: a.name, total, rate };
       });
+
+      // 평가 현황판 상품 수 계산
+      const dashActiveCount = filterStatus === "all"
+        ? rawDashProducts.length
+        : filteredDashProducts.length;
+      const dashRedeemedCount = rawRedeemedProducts.length;
+      const dashFilterCount = filteredDashProducts.length;
       filteredDashProducts.sort((a, b) => {
         if (sortBy === "name") return a.p.name.localeCompare(b.p.name);
         if (sortBy === "date") {
@@ -850,16 +857,18 @@ let sText = ""; let sBg = ""; let sColor = "";
                     });
                     const total = prods.reduce((s,p) => s + (acc.products[p.id]||0), 0);
                     const rate = total > 0 ? prods.reduce((s,p) => s + (acc.products[p.id]||0) * p.annualRate, 0) / total : null;
-                    return { ...g, total, rate };
+                    return { ...g, total, rate, count: prods.length };
                   });
+                  const activeCount = myProducts.filter(p => !p.is_redeemed).length;
+                  const redeemedCount = myProducts.filter(p => p.is_redeemed).length;
                   return (
                     <div style={{...C.card, padding:"12px 16px", marginBottom:12}}>
                       <div style={{display:"flex", gap:12, alignItems:"stretch"}}>
                         <div style={{display:"flex", flexDirection:"column", justifyContent:"center", flex:2}}>
                           <div style={{fontSize:11, color:"#888", marginBottom:2}}>{acc.name} 총 가입금액</div>
-                          <div style={{fontSize:24, fontWeight:500, marginBottom:6}}>{currentAccMetrics.total.toLocaleString()}만</div>
-                          <div style={{fontSize:11, color:"#888"}}>평균 수익률</div>
-                          <div style={{fontSize:18, fontWeight:500}}>{currentAccMetrics.rate.toFixed(1)}%</div>
+                          <div style={{fontSize:24, fontWeight:500, marginBottom:2}}>{currentAccMetrics.total.toLocaleString()}만</div>
+                          <div style={{fontSize:11, color:"#888"}}>평균 수익률 <span style={{fontWeight:500, color:"#222"}}>{currentAccMetrics.rate.toFixed(1)}%</span></div>
+                          <div style={{fontSize:11, color:"#888", marginTop:4}}>현재 <span style={{fontWeight:500, color:"#222"}}>{activeCount}</span>개 상품{redeemedCount > 0 && <span style={{color:"#aaa"}}> ({redeemedCount}개 상환완료)</span>}</div>
                         </div>
                         <div style={{width:"0.5px", background:"#e5e5e5", flexShrink:0}}></div>
                         <div style={{flex:3, display:"flex", flexDirection:"column", gap:4, justifyContent:"center"}}>
@@ -867,7 +876,8 @@ let sText = ""; let sBg = ""; let sColor = "";
                             <div key={g.key} style={{display:"flex", alignItems:"center", gap:5}}>
                               <span style={{width:6, height:6, borderRadius:"50%", background:g.color, flexShrink:0, display:"inline-block"}}></span>
                               <span style={{fontSize:11, color:"#888", flex:1}}>{g.key}</span>
-                              <span style={{fontSize:12, fontWeight:500}}>{g.total > 0 ? g.total.toLocaleString()+"만" : "—"}</span>
+                              <span style={{fontSize:11, color:"#aaa"}}>{g.count > 0 ? g.count+"개" : "—"}</span>
+                              <span style={{fontSize:12, fontWeight:500, marginLeft:6}}>{g.total > 0 ? g.total.toLocaleString()+"만" : "—"}</span>
                               <span style={{fontSize:11, color:"#888", minWidth:34, textAlign:"right"}}>{g.rate !== null ? (g.key==="상환 완료" && g.rate >= 0 ? "+" : "") + g.rate.toFixed(1)+"%" : "—"}</span>
                             </div>
                           ))}
@@ -921,6 +931,12 @@ let sText = ""; let sBg = ""; let sColor = "";
                 <div style={{...C.metricCard, background:"#fff", border:"1px solid #e5e5e5"}}>
                   <div style={{fontSize:12,color:"#888"}}>{filterStatus==="all" ? `${acc.name} 총 잔액` : `${acc.name} · ${filterStatus==="상환 완료"?"상환 완료":filterStatus} 합계`}</div>
                   <div style={{fontSize:20,fontWeight:500}}>{filterStatus==="all" ? currentAccMetrics.total.toLocaleString() : filterMetrics.total.toLocaleString()}만</div>
+                  <div style={{fontSize:11,color:"#888",marginTop:4}}>
+                    {filterStatus==="all"
+                      ? <>현재 <span style={{fontWeight:500,color:"#222"}}>{myProducts.filter(p=>!p.is_redeemed).length}</span>개 상품{myProducts.filter(p=>p.is_redeemed).length>0&&<span style={{color:"#aaa"}}> ({myProducts.filter(p=>p.is_redeemed).length}개 상환완료)</span>}</>
+                      : <><span style={{fontWeight:500,color:"#222"}}>{dashFilterCount}</span>개 상품</>
+                    }
+                  </div>
                 </div>
                 <div style={{...C.metricCard, background:"#fff", border:"1px solid #e5e5e5"}}>
                   <div style={{fontSize:12,color:"#888"}}>{filterStatus==="all" ? "평균 수익률" : "해당 평균 수익률"}</div>
@@ -931,6 +947,12 @@ let sText = ""; let sBg = ""; let sColor = "";
                   <div style={{...C.metricCard, background: filterStatus==="all"?"#E1F5EE":"#EFF6FF", border: filterStatus==="all"?"1px solid #c3e6cb":"1px solid #BFDBFE"}}>
                     <div style={{fontSize:12,color: filterStatus==="all"?"#0F6E56":"#1D4ED8", fontWeight:500}}>{filterStatus==="all" ? "전체 계좌 총 잔액" : `${filterStatus==="상환 완료"?"상환 완료":filterStatus} 합계`}</div>
                     <div style={{fontSize:20,fontWeight:700,color: filterStatus==="all"?"#0F6E56":"#1D4ED8"}}>{filterStatus==="all" ? grandTotal.toLocaleString() : filterMetrics.total.toLocaleString()}만</div>
+                    <div style={{fontSize:11,color: filterStatus==="all"?"#0F6E56":"#1D4ED8",marginTop:4}}>
+                      {filterStatus==="all"
+                        ? <>현재 <span style={{fontWeight:500}}>{dashActiveCount}</span>개 상품{dashRedeemedCount>0&&<span style={{opacity:0.75}}> ({dashRedeemedCount}개 상환완료)</span>}</>
+                        : <><span style={{fontWeight:500}}>{dashFilterCount}</span>개 상품</>
+                      }
+                    </div>
                   </div>
                   <div style={{...C.metricCard, background:"#E1F5EE", border:"1px solid #c3e6cb"}}>
                     <div style={{fontSize:12,color:"#0F6E56", fontWeight:500}}>{filterStatus==="all" ? "전체 평균 수익률" : "해당 평균 수익률"}</div>
