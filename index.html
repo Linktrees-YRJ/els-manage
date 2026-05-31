@@ -591,8 +591,10 @@
         }
         setImgResult({ matched: toApply, notFound });
         setImgConfirmList(null);
-        if (toApply.length > 0) setAddModal("list"); // 목록 탭으로 이동해서 결과 확인
+        if (toApply.length > 0) setAddModal("list");
       }
+
+      async function updatePricesFromYahoo() {
         setPricesLoading(true);
         const uniqueTickers = new Set();
         const totalAssets = [...new Set(db.flatMap(p => p.assets))];
@@ -1140,20 +1142,18 @@ let sText = ""; let sBg = ""; let sColor = "";
                 <div style={{display:"flex",gap:8,marginBottom:16}}>
                   <button style={{...C.btn,background:addModal==="list"?"#B5D4F4":undefined}} onClick={()=>openAddModal("list")}>전체 목록</button>
                   <button style={{...C.btn,background:addModal==="text"?"#B5D4F4":undefined}} onClick={()=>openAddModal("text")}>텍스트 검색</button>
-                  <label style={{...C.btn, background:addModal==="image"?"#B5D4F4":undefined, cursor:"pointer", display:"inline-flex", alignItems:"center"}}
-                    onClick={()=>setAddModal("image")}>
-                    이미지 업로드
-                    {addModal==="image" && <input type="file" accept="image/*" style={{display:"none"}} onChange={handleImageUpload}/>}
-                  </label>
+                  <button style={{...C.btn,background:addModal==="image"?"#B5D4F4":undefined}} onClick={()=>setAddModal("image")}>이미지 업로드</button>
                 </div>
 
                 {addModal==="image"&&(<>
+                  <label style={{...C.btnP, display:"inline-flex", alignItems:"center", gap:6, cursor:"pointer", marginBottom:16}}>
+                    📷 이미지 선택
+                    <input type="file" accept="image/*" style={{display:"none"}} onChange={handleImageUpload}/>
+                  </label>
                   <div style={{marginBottom:16,padding:"14px 16px",background:"#f5f7fa",borderRadius:10,fontSize:13,color:"#555",lineHeight:1.6}}>
-                    📷 계좌 캡처 이미지를 업로드하면 AI가 상품명과 투자금액을 자동으로 인식합니다.<br/>
-                    위의 <b>이미지 업로드</b> 탭을 다시 눌러 파일을 선택해주세요.
+                    계좌 캡처 이미지를 선택하면 AI가 상품명과 투자금액을 자동으로 인식합니다.
                   </div>
-                  {imgUploading&&<div style={{textAlign:"center",padding:24,color:"#185FA5",fontSize:14}}>🔍 AI가 이미지를 분석 중입니다...</div>}
-
+                  {imgUploading&&(<div style={{textAlign:"center",padding:24,color:"#185FA5",fontSize:14}}>🔍 AI가 이미지를 분석 중입니다...</div>)}
                   {imgConfirmList&&(
                     <div style={{marginBottom:16}}>
                       <div style={{fontSize:14,fontWeight:500,marginBottom:10,color:"#D97706"}}>⚠️ 아래 상품은 이미 금액이 입력되어 있습니다. 덮어쓸까요?</div>
@@ -1169,25 +1169,26 @@ let sText = ""; let sBg = ""; let sColor = "";
                       </div>
                     </div>
                   )}
-
-                  {imgResult&&(<>
-                    {imgResult.matched.length>0&&(
-                      <div style={{marginBottom:12}}>
-                        <div style={{fontSize:13,fontWeight:500,color:"#0F6E56",marginBottom:8}}>✅ {imgResult.matched.length}개 상품 자동 입력 완료</div>
-                        {imgResult.matched.map(({p,amount})=>(
-                          <div key={p.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 12px",background:"#E1F5EE",borderRadius:8,marginBottom:6,fontSize:13}}>
-                            <span>{p.name}</span><span style={{fontWeight:500}}>{amount.toLocaleString()}만원</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {imgResult.notFound.length>0&&(
-                      <div style={{padding:"12px 14px",background:"#FEF2F2",border:"0.5px solid #FECACA",borderRadius:8,fontSize:13,color:"#DC2626"}}>
-                        <div style={{fontWeight:500,marginBottom:4}}>⚠️ DB에 없는 상품</div>
-                        <div>{imgResult.notFound.join(", ")}은(는) DB에 존재하지 않는 상품입니다. 관리자에게 문의해주세요.</div>
-                      </div>
-                    )}
-                  </>)}
+                  {imgResult&&(
+                    <div>
+                      {imgResult.matched.length>0&&(
+                        <div style={{marginBottom:12}}>
+                          <div style={{fontSize:13,fontWeight:500,color:"#0F6E56",marginBottom:8}}>✅ {imgResult.matched.length}개 상품 자동 입력 완료</div>
+                          {imgResult.matched.map(({p,amount})=>(
+                            <div key={p.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 12px",background:"#E1F5EE",borderRadius:8,marginBottom:6,fontSize:13}}>
+                              <span>{p.name}</span><span style={{fontWeight:500}}>{amount.toLocaleString()}만원</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {imgResult.notFound.length>0&&(
+                        <div style={{padding:"12px 14px",background:"#FEF2F2",border:"0.5px solid #FECACA",borderRadius:8,fontSize:13,color:"#DC2626"}}>
+                          <div style={{fontWeight:500,marginBottom:4}}>⚠️ DB에 없는 상품</div>
+                          <div>{imgResult.notFound.join(", ")}은(는) DB에 존재하지 않는 상품입니다. 관리자에게 문의해주세요.</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>)}
 
                 {addModal==="text"&&(<div style={{marginBottom:12}}><textarea style={{...C.input,height:80}} placeholder="상품명 또는 회차 입력" value={textInput} onChange={e=>setTextInput(e.target.value)}/><button style={{...C.btnP,marginTop:8}} onClick={handleTextMatch}>검색</button></div>)}
@@ -1214,14 +1215,6 @@ let sText = ""; let sBg = ""; let sColor = "";
       );
     }
     ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
-// 이 덩어리를 찾아서 아래 코드로 완전히 교체하세요
-React.useEffect(() => {
-  // session이 정의되어 있고, 그 안에 access_token이 있을 때만 실행
-  if (typeof session !== 'undefined' && session && session.access_token) {
-    loadDb(session.access_token);
-    loadPricesFromDB(session.access_token);
-  }
-}, [typeof session !== 'undefined' ? session : null]);
   </script>
 </body>
 </html>
