@@ -506,7 +506,7 @@
 
       function setAmt(pid,val){setAccounts(prev=>prev.map((a,i)=>i===activeTab?{...a,products:{...a.products,[pid]:Math.max(0,val)}}:a));}
       function addAmtFn(pid,delta){setAccounts(prev=>prev.map((a,i)=>i===activeTab?{...a,products:{...a.products,[pid]:Math.max(0,(a.products[pid]||0)+delta)}}:a));}
-      function openAddModal(mode){const init={};db.forEach(p=>{if(!myProductIds.includes(String(p.id)))init[p.id]=true;});setCheckedAdd(init);setTextInput("");setTextMatched(null);setAddModal(mode);}
+      function openAddModal(mode){const init={};setCheckedAdd(init);setTextInput("");setTextMatched(null);setAddModal(mode);}
       function confirmAdd(){const toAdd=Object.keys(checkedAdd).filter(k=>checkedAdd[k]);setAccounts(prev=>prev.map((a,i)=>{if(i!==activeTab)return a;const np={...a.products};toAdd.forEach(id=>{if(!(String(id) in np))np[String(id)]=0;});return{...a,products:np};}));setAddModal(null);}
       function deleteSelected(){setAccounts(prev=>prev.map((a,i)=>{if(i!==activeTab)return a;const np={...a.products};Object.keys(selectedDelete).filter(k=>selectedDelete[k]).forEach(k=>delete np[k]);return{...a,products:np};}));setSelectedDelete({});}
       function handleTextMatch(){const nums=textInput.match(/\d+/g)||[];const matched=db.filter(p=>{const pn=p.name.match(/\d+/g)||[];return nums.some(n=>pn.includes(n));}).filter(p=>!myProductIds.includes(String(p.id)));const init={};matched.forEach(p=>init[p.id]=true);setCheckedAdd(init);setTextMatched(matched);}
@@ -925,6 +925,7 @@ let sText = ""; let sBg = ""; let sColor = "";
           <div style={{padding:16,maxWidth:800,margin:"0 auto"}}>
             {mainTab==="list"&&(<>
               {!editMode ? (<>
+                <button style={{...C.btnP,width:"100%",marginBottom:12}} onClick={()=>setEditMode(true)}>수정</button>
                 {(()=>{
                   const statusGroups = [
                     { key:"조기상환 가능", color:"#1D9E75" },
@@ -1005,12 +1006,14 @@ let sText = ""; let sBg = ""; let sColor = "";
 
 
                 
-                <button style={{...C.btnP,width:"100%",marginTop:10}} onClick={()=>setEditMode(true)}>수정</button>
+                <button style={{...C.btnP,width:"100%",marginTop:10,display:"none"}} onClick={()=>setEditMode(true)}>수정</button>
               </>) : (<>
+                <div style={{display:"flex",gap:8,marginBottom:12}}>
+                  <button style={{...C.btn,flex:1}} onClick={()=>openAddModal("list")}>+ 상품 추가</button>
+                  <button style={{...C.btnP,flex:1}} onClick={async()=>{await saveAccountProducts(acc.id,acc.products);setEditMode(false);}} disabled={saving}>{saving?"저장 중...":"저장 완료"}</button>
+                </div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><span style={{fontSize:15,fontWeight:500}}>수정 모드</span><div style={{display:"flex",gap:8}}><button style={C.btn} onClick={()=>{const allS=myProducts.length>0&&myProducts.every(p=>selectedDelete[p.id]); if(allS)setSelectedDelete({}); else{const n={};myProducts.forEach(p=>n[p.id]=true);setSelectedDelete(n);}}}>{myProducts.every(p=>selectedDelete[p.id])?"전체 해제":"전체 선택"}</button>{Object.values(selectedDelete).some(Boolean)&&<button style={C.btnD} onClick={deleteSelected}>선택 삭제</button>}<button style={C.btn} onClick={()=>{setEditMode(false);setSelectedDelete({});}}>취소</button></div></div>
                 {myProducts.map(p=>(<div key={p.id} style={C.card}><div onClick={()=>setSelectedDelete(prev=>({...prev,[p.id]:!prev[p.id]}))} style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,cursor:"pointer"}}><input type="checkbox" checked={!!selectedDelete[p.id]} onChange={()=>{}} style={{width:16,height:16,pointerEvents:"none"}}/><span style={{fontSize:14,fontWeight:500,flex:1}}>{getShortName(p.name)}</span><span style={{fontSize:13,color:"#888"}}>연 {p.annualRate}%</span></div><div style={{display:"flex",flexDirection:"column",gap:8}}><div style={{display:"flex",alignItems:"stretch",border:"1px solid #888",borderRadius:8,overflow:"hidden"}}><input type="number" value={acc.products[p.id]||0} onFocus={e=>{if(e.target.value==="0")e.target.value="";}} onBlur={e=>{if(e.target.value==="")setAmt(p.id,0);}} onChange={e=>setAmt(p.id,parseInt(e.target.value)||0)} style={{flex:1,minWidth:0,padding:"9px 12px",fontSize:15,border:"none",outline:"none",background:"#fff",color:"#111"}}/><span style={{display:"flex",alignItems:"center",padding:"0 12px",fontSize:14,color:"#555",borderLeft:"1px solid #888",background:"#f5f5f5",whiteSpace:"nowrap"}}>만원</span></div><div style={{display:"flex",gap:6}}>{[["+100만",100],["+10만",10],["+1만",1]].map(([label,val])=>(<button key={label} onClick={()=>addAmtFn(p.id,val)} style={{flex:1,padding:"8px 0",fontSize:13,border:"1px solid #ccc",borderRadius:6,background:"#fff",color:"#111"}}>{label}</button>))}<button onClick={()=>setAmt(p.id,0)} style={{flex:1,padding:"8px 0",fontSize:13,border:"1px solid #FCA5A5",borderRadius:6,background:"#FEF2F2",color:"#DC2626",fontWeight:500}}>초기화</button></div></div></div>))}
-                <button style={{...C.btn,width:"100%",marginBottom:8}} onClick={()=>openAddModal("list")}>+ 상품 추가</button>
-                <button style={{...C.btnP,width:"100%"}} onClick={async()=>{await saveAccountProducts(acc.id,acc.products);setEditMode(false);}} disabled={saving}>{saving?"저장 중...":"저장 완료"}</button>
               </>)}
             </>)}
 
