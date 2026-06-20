@@ -1,4 +1,4 @@
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
   try {
@@ -12,10 +12,8 @@ export default async function handler(req, res) {
       body: JSON.stringify(req.body)
     });
     const data = await response.json();
-    console.log("Anthropic 오류 상세:", JSON.stringify(data));
     res.status(response.status).json(data);
   } catch (e) {
-    console.error("프록시 오류:", e.message);
     res.status(500).json({ error: e.message });
   }
 }
