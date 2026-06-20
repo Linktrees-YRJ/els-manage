@@ -6,7 +6,7 @@
   <title>ELS 관리 시스템</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.10/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0;}
@@ -1205,11 +1205,15 @@ let sText = ""; let sBg = ""; let sColor = "";
 
           {detailProduct&&(
             <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",zIndex:100}} onClick={()=>setDetailProduct(null)}>
-              <div style={{background:"#fff",width:"100%",maxHeight:"92vh",overflowY:"auto",borderRadius:"16px 16px 0 0",padding:20,paddingBottom:40,WebkitOverflowScrolling:"touch"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><span style={{fontSize:16,fontWeight:500}}>{getShortName(detailProduct.name)}</span><button style={C.btn} onClick={()=>setDetailProduct(null)}>닫기</button></div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>{[["기초자산",detailProduct.assets.join(", ")],["연 수익률",detailProduct.annualRate+"%"],["낙인배리어",detailProduct.knockIn+"%"],["만기",detailProduct.maturityMonths+"개월"],["발행일",fmt(detailProduct.issue_date)],["만기일",fmt(detailProduct.maturity_date)]].map(([k,v])=>(<div key={k} style={{background:"#f5f7fa",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:12,color:"#666"}}>{k}</div><div style={{fontSize:14,fontWeight:500,marginTop:2}}>{v}</div></div>))}</div>
-                <div style={{fontSize:13,fontWeight:500,marginBottom:8}}>차수별 조기상환 배리어</div>
-                {detailProduct.evaluationDates.map(([evalD,payD],idx)=>{ const d=daysUntil(evalD); const bar=detailProduct.earlyBarriers[idx]??detailProduct.earlyBarriers[detailProduct.earlyBarriers.length-1]; const isP=d<0; return(<div key={idx} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"0.5px solid #eee",opacity:isP?0.4:1}}><div><span style={{fontSize:13}}>{idx+1}차 {fmt(evalD)}</span><span style={{fontSize:12,color:"#888",marginLeft:8}}>지급 {fmt(payD)}</span></div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:13,color:"#185FA5"}}>{bar}%</span>{!isP&&d<=14&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:"#FAEEDA",color:"#BA7517",fontWeight:500}}>D-{d}</span>}</div></div>);})}
+              <div style={{background:"#fff",width:"100%",maxHeight:"92vh",display:"flex",flexDirection:"column",borderRadius:"16px 16px 0 0",WebkitOverflowScrolling:"touch"}} onClick={()=>setDetailProduct(null)}>
+                <div style={{padding:"20px 20px 12px 20px",flexShrink:0}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><span style={{fontSize:16,fontWeight:500}}>{getShortName(detailProduct.name)}</span><button style={C.btn} onClick={()=>setDetailProduct(null)}>닫기</button></div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>{[["기초자산",detailProduct.assets.join(", ")],["연 수익률",detailProduct.annualRate+"%"],["낙인배리어",detailProduct.knockIn+"%"],["만기",detailProduct.maturityMonths+"개월"],["발행일",fmt(detailProduct.issue_date)],["만기일",fmt(detailProduct.maturity_date)]].map(([k,v])=>(<div key={k} style={{background:"#f5f7fa",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:12,color:"#666"}}>{k}</div><div style={{fontSize:14,fontWeight:500,marginTop:2}}>{v}</div></div>))}</div>
+                  <div style={{fontSize:13,fontWeight:500,marginBottom:4}}>차수별 조기상환 배리어</div>
+                </div>
+                <div style={{overflowY:"auto",flex:1,padding:"0 20px 40px 20px",WebkitOverflowScrolling:"touch"}} onClick={e=>e.stopPropagation()}>
+                  {detailProduct.evaluationDates.map(([evalD,payD],idx)=>{ const d=daysUntil(evalD); const bar=detailProduct.earlyBarriers[idx]??detailProduct.earlyBarriers[detailProduct.earlyBarriers.length-1]; const isP=d<0; return(<div key={idx} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"0.5px solid #eee",opacity:isP?0.4:1}}><div><span style={{fontSize:13}}>{idx+1}차 {fmt(evalD)}</span><span style={{fontSize:12,color:"#888",marginLeft:8}}>지급 {fmt(payD)}</span></div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:13,color:"#185FA5"}}>{bar}%</span>{!isP&&d<=14&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:"#FAEEDA",color:"#BA7517",fontWeight:500}}>D-{d}</span>}</div></div>);})}
+                </div>
               </div>
             </div>
           )}
