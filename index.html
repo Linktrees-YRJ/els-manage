@@ -1064,9 +1064,9 @@ let sText = ""; let sBg = ""; let sColor = "";
           <span style={{fontSize: 10, color: '#e74c3c', border: '1px solid #e74c3c', borderRadius: 4, padding: '1px 4px', fontWeight: 'bold', marginLeft: 6, verticalAlign: 'middle'}}>리자드</span>
         )}
         {dashView === "all" && (
-          <span style={{display: "inline-flex", gap: 4, marginLeft: 8, verticalAlign: "middle"}}>
+          <span style={{display: "inline-flex", gap: 4, marginLeft: 8, verticalAlign: "middle", flexWrap:"wrap"}}>
             {accounts.filter(a => (a.products[p.id] || 0) > 0).map(a => (
-              <span key={a.id} style={{fontSize: 10, padding: "2px 6px", background: "#E2E8F0", color: "#475569", borderRadius: 4}}>{a.name}</span>
+              <span key={a.id} style={{fontSize: 10, padding: "2px 6px", background: "#E2E8F0", color: "#475569", borderRadius: 4}}>{a.name} {(a.products[p.id]||0).toLocaleString()}만</span>
             ))}
           </span>
         )}
@@ -1114,7 +1114,7 @@ let sText = ""; let sBg = ""; let sColor = "";
   {dashView==="all" && (
     <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:6}}>
       {accounts.filter(a=>(a.products[p.id]||0)>0).map(a=>(
-        <span key={a.id} style={{fontSize:10,padding:"2px 5px",background:"#E2E8F0",color:"#475569",borderRadius:4}}>{a.name}</span>
+        <span key={a.id} style={{fontSize:10,padding:"2px 5px",background:"#E2E8F0",color:"#475569",borderRadius:4}}>{a.name} {(a.products[p.id]||0).toLocaleString()}만</span>
       ))}
     </div>
   )}
@@ -1195,7 +1195,7 @@ let sText = ""; let sBg = ""; let sColor = "";
                 </>)}
 
                 {addModal==="text"&&(<div style={{marginBottom:12}}><textarea style={{...C.input,height:80}} placeholder="상품명 또는 회차 입력" value={textInput} onChange={e=>setTextInput(e.target.value)}/><button style={{...C.btnP,marginTop:8}} onClick={handleTextMatch}>검색</button></div>)}
-                {(addModal==="list"||(addModal==="text"&&textMatched!==null))&&(()=>{ const list=addModal==="list"?db.filter(p=>!myProductIds.includes(String(p.id))):textMatched; const allC=list.length>0&&list.every(p=>checkedAdd[p.id]); return(<>
+                {(addModal==="list"||(addModal==="text"&&textMatched!==null))&&(()=>{ const rawList=addModal==="list"?db.filter(p=>!myProductIds.includes(String(p.id))):textMatched; const list=[...rawList].sort((a,b)=>{ const an=parseInt((a.name.match(/(\d+)\s*회/)||[])[1]||"0"); const bn=parseInt((b.name.match(/(\d+)\s*회/)||[])[1]||"0"); return bn-an; }); const allC=list.length>0&&list.every(p=>checkedAdd[p.id]); return(<>
                   {list.length>0&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}><button style={{...C.btn,fontSize:12,padding:"4px 10px"}} onClick={()=>{ const allC=list.every(p=>checkedAdd[p.id]); if(allC){setCheckedAdd({});}else{const n={};list.forEach(p=>n[p.id]=true);setCheckedAdd(n);}}}>{list.every(p=>checkedAdd[p.id])?"전체 해제":"전체 선택"}</button></div>}
                   {list.map(p=>(<div key={p.id} onClick={()=>setCheckedAdd(v=>({...v,[p.id]:!v[p.id]}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"0.5px solid #eee",cursor:"pointer"}}><input type="checkbox" checked={!!checkedAdd[p.id]} onChange={()=>{}} style={{width:16,height:16,pointerEvents:"none"}}/><div style={{flex:1}}><div style={{fontSize:14,fontWeight:500}}>{p.name}</div><div style={{fontSize:12,color:"#666"}}>{p.assets.join(" / ")} | 연 {p.annualRate}%</div></div></div>))}
                   <button style={{...C.btnP,width:"100%",marginTop:16}} onClick={confirmAdd}>확인</button></>); })()}
