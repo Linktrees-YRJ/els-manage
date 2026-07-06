@@ -647,8 +647,8 @@
   const now = new Date();
   const future = productSchedules
     .filter(s => {
-      // 지급일(pay_date)이 있으면 지급일 다음날, 없으면 평가일 기준
-      const cutoff = s.pay_date ? new Date(new Date(s.pay_date).getTime() + 24*60*60*1000) : new Date(s.eval_date);
+      // 지급일(payment_date)이 있으면 지급일 다음날, 없으면 평가일 기준
+      const cutoff = s.payment_date ? new Date(new Date(s.payment_date).getTime() + 24*60*60*1000) : new Date(s.eval_date);
       return cutoff > now;
     })
     .sort((a, b) => new Date(a.eval_date) - new Date(b.eval_date));
