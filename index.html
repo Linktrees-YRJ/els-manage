@@ -175,7 +175,7 @@
     function daysUntil(s){if(!s||s.trim()==="")return 9999;return Math.ceil((new Date(s)-TODAY)/86400000);}
     function getNextEval(p){for(const[e]of(p.evaluationDates||[])){const d=daysUntil(e);if(d>=0&&d!==9999)return{date:e,days:d};}return null;}
 
-    function RatioBar({ratio, init, cur, barrier, knockIn}){
+    function RatioBar({ratio, init, cur, barrier, knockIn, futureBarriers}){
       if(!init || init <= 0) return <div style={{fontSize:12,color:"#A32D2D",padding:"8px 0",fontWeight:500}}>⚠️ 기준가 미입력</div>;
       if(cur === null || cur === undefined) return <div style={{fontSize:12,color:"#aaa",padding:"8px 0"}}>종가 데이터 대기 중</div>;
       const MIN=0, MAX=150, pct=v=>Math.max(0,Math.min(100,(v-MIN)/(MAX-MIN)*100));
@@ -188,18 +188,27 @@
       const labels=[{id:"ki",pct:kiPct},{id:"bar",pct:barPct},{id:"cur",pct:curPct}].sort((a,b)=>a.pct-b.pct);
       for(let i=1;i<labels.length;i++)if(labels[i].pct-labels[i-1].pct<10)labels[i].pct=labels[i-1].pct+10;
       const lm={};labels.forEach(l=>lm[l.id]=l.pct);
+      // 이후 차수 배리어 (현재 배리어와 다른 값만, 중복 제거)
+      const uniqueFuture = [...new Set((futureBarriers||[]).filter(b => b !== barrier))];
       return(
         <div style={{padding:"25px 0 25px"}}>
           <div style={{position:"relative",height:8,background:"#e8e8e8",borderRadius:4}}>
             <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${kiPct}%`,background:"rgba(220,38,38,0.12)",borderRadius:"4px 0 0 4px"}}/>
             <div style={{position:"absolute",left:`${kiPct}%`,top:0,bottom:0,width:`${barPct-kiPct}%`,background:"rgba(217,119,6,0.10)"}}/>
             <div style={{position:"absolute",left:`${barPct}%`,top:0,bottom:0,right:0,background:"rgba(15,110,86,0.10)",borderRadius:"0 4px 4px 0"}}/>
+            {/* 이후 차수 배리어 점선 (흐리게) */}
+            {uniqueFuture.map((fb,i) => {
+              const fbPct = pct(fb);
+              return (
+                <div key={i} style={{position:"absolute",left:`${fbPct}%`,top:-6,bottom:-6,width:0,borderLeft:"2px dashed rgba(180,140,60,0.35)",transform:"translateX(-50%)",zIndex:1}}/>
+              );
+            })}
             <div style={{position:"absolute",left:`${kiPct}%`,top:-4,bottom:-4,width:2,background:"#DC2626",transform:"translateX(-50%)",zIndex:2}}/>
             <div style={{position:"absolute",left:`${barPct}%`,top:-4,bottom:-4,width:2,background:"#D97706",transform:"translateX(-50%)",zIndex:2}}/>
             <div style={{position:"absolute",left:`${curPct}%`,top:"50%",transform:"translate(-50%,-50%)",width:13,height:13,background:curColor,borderRadius:"50%",border:"2px solid #fff",zIndex:3,outline:`2px solid ${curColor}`}}/>
-            <div style={{position:"absolute",left:`${lm.ki}%`,top:-20,transform:"translateX(-50%)",fontSize:10,color:"#DC2626",whiteSpace:"nowrap",fontWeight:500}}>${kiPrice}</div>
-            <div style={{position:"absolute",left:`${lm.bar}%`,top:-20,transform:"translateX(-50%)",fontSize:10,color:"#D97706",whiteSpace:"nowrap",fontWeight:500}}>${barPrice}</div>
-            <div style={{position:"absolute",left:`${lm.cur}%`,top:-20,transform:"translateX(-50%)",fontSize:10,color:curColor,whiteSpace:"nowrap",fontWeight:700}}>${curPrice}</div>
+            <div style={{position:"absolute",left:`${lm.ki}%`,top:-20,transform:"translateX(-50%)",fontSize:10,color:"#DC2626",whiteSpace:"nowrap",fontWeight:500}}>{kiPrice}</div>
+            <div style={{position:"absolute",left:`${lm.bar}%`,top:-20,transform:"translateX(-50%)",fontSize:10,color:"#D97706",whiteSpace:"nowrap",fontWeight:500}}>{barPrice}</div>
+            <div style={{position:"absolute",left:`${lm.cur}%`,top:-20,transform:"translateX(-50%)",fontSize:10,color:curColor,whiteSpace:"nowrap",fontWeight:700}}>{curPrice}</div>
             <div style={{position:"absolute",left:`${lm.ki}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:"#DC2626",whiteSpace:"nowrap",fontWeight:500}}>{knockIn}%</div>
             <div style={{position:"absolute",left:`${lm.bar}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:"#D97706",whiteSpace:"nowrap",fontWeight:500}}>{barrier}%</div>
             <div style={{position:"absolute",left:`${lm.cur}%`,top:12,transform:"translateX(-50%)",fontSize:11,color:curColor,whiteSpace:"nowrap",fontWeight:700}}>{ratio.toFixed(1)}%</div>
@@ -637,7 +646,11 @@
 
   const now = new Date();
   const future = productSchedules
-    .filter(s => new Date(s.eval_date) >= now)
+    .filter(s => {
+      // 지급일(pay_date)이 있으면 지급일 다음날, 없으면 평가일 기준
+      const cutoff = s.pay_date ? new Date(new Date(s.pay_date).getTime() + 24*60*60*1000) : new Date(s.eval_date);
+      return cutoff > now;
+    })
     .sort((a, b) => new Date(a.eval_date) - new Date(b.eval_date));
 
   if (!future.length) return { sText: "만기 평가중", sBg: "#eee", sColor: "#666", assetStatuses: [], next: {date:"", days:0} };
@@ -692,8 +705,12 @@ let sText = ""; let sBg = ""; let sColor = "";
     }
   }
 
+  // 현재 차수 인덱스 계산 (이후 배리어 전달용)
+  const nextIdx = p.evaluationDates ? p.evaluationDates.findIndex(([evalD]) => new Date(evalD) >= now) : 0;
+  const futureBarriers = p.earlyBarriers ? p.earlyBarriers.slice(nextIdx + 1) : [];
+
   return { 
-    sText, sBg, sColor, assetStatuses, barrier, isLizardRound,
+    sText, sBg, sColor, assetStatuses, barrier, isLizardRound, futureBarriers,
     next: { date: nextDate, days: Math.ceil((new Date(nextDate) - now) / (1000 * 60 * 60 * 24)) }
   };
 }
@@ -1089,7 +1106,7 @@ let sText = ""; let sBg = ""; let sColor = "";
           <span>{as.asset}</span>
           <span style={{color: "#666"}}>기준가: {as.init ? as.init.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : "—"}</span>
         </div>
-        <RatioBar ratio={as.ratio} init={as.init} cur={as.cur} barrier={as.barrier} knockIn={p.knockIn}/>
+        <RatioBar ratio={as.ratio} init={as.init} cur={as.cur} barrier={as.barrier} knockIn={p.knockIn} futureBarriers={st.futureBarriers||[]}/>
       </div>
     ))}
   </div>
