@@ -5,7 +5,7 @@ module.exports = async function handler(req, res) {
   const GAS_URL = "https://script.google.com/macros/s/AKfycbz8AZrPUFy55gwPvM8COb4GExsVtCgmdtXpmCn31BengXymAPz2lNvp0TZMcUtNvG0z/exec";
 
   try {
-    const response = await fetch(`${GAS_URL}?symbols=${encodeURIComponent(symbols)}`, {
+const response = await fetch(`${GAS_URL}?symbols=${symbols}`, {
       redirect: "follow"
     });
     const text = await response.text();
