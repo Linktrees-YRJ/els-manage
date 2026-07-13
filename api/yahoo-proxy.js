@@ -12,7 +12,7 @@ let symbols = req.query.symbols;
     try {
       res.status(200).json(JSON.parse(text));
     } catch {
-      res.status(502).json({ error: "Apps Script 응답 파싱 실패", raw: text.slice(0, 300) });
+      res.status(502).json({ error: "Apps Script 응답 파싱 실패", raw: text.slice(0, 1500) });
     }
   } catch (e) {
     res.status(500).json({ error: e.message });
