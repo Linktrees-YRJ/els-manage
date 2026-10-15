@@ -770,9 +770,24 @@ let sText = ""; let sBg = ""; let sColor = "";
         : calcFilterMetrics(filteredDashProducts, null);
 
       // 계좌별 필터 연동 메트릭
+      // 상환 완료 상품의 수익금 합계 (accObj 없으면 전체 계좌 합산)
+      const calcRedeemedProfit = (prods, accObj) => prods.reduce((sum, p) => {
+        if (!p.is_redeemed || p.redemption_rate === null || p.redemption_rate === undefined) return sum;
+        const amt = accObj ? (accObj.products[p.id]||0) : accounts.reduce((s,a)=>s+(a.products[p.id]||0),0);
+        return sum + amt * p.redemption_rate / 100;
+      }, 0);
+      const dashRedeemedProfit = calcRedeemedProfit(filteredDashProducts.map(x=>x.p), dashView==="account" ? acc : null);
+      // 괄호 수익금 표시 (+얼마)
+      const ProfitTag = ({v}) => (
+        <span style={{fontSize:"0.75em",fontWeight:600,marginLeft:4,color:v>=0?"#0F6E56":"#DC2626"}}>
+          ({v>=0?"+":"−"}{Math.abs(v).toLocaleString(undefined,{maximumFractionDigits:1})}만)
+        </span>
+      );
+
       const filteredAllAccsMetrics = accounts.map(a => {
         const { total, rate } = calcFilterMetrics(filteredDashProducts, a);
-        return { name: a.name, total, rate };
+        const profit = calcRedeemedProfit(filteredDashProducts.map(x=>x.p), a);
+        return { name: a.name, total, rate, profit };
       });
 
       // 평가 현황판 상품 수 계산
@@ -1022,7 +1037,7 @@ let sText = ""; let sBg = ""; let sColor = "";
                       <div style={{display:"flex", gap:12, alignItems:"stretch"}}>
                         <div style={{display:"flex", flexDirection:"column", justifyContent:"center", flex:2}}>
                           <div style={{fontSize:11, color:"#888", marginBottom:2}}>{acc.name} 총 가입금액</div>
-                          <div style={{fontSize:24, fontWeight:500, marginBottom:2}}>{currentAccMetrics.total.toLocaleString()}만</div>
+                          <div style={{fontSize:24, fontWeight:500, marginBottom:2}}>{currentAccMetrics.total.toLocaleString()}만{redeemedCount > 0 && <ProfitTag v={calcRedeemedProfit(myProducts, acc)}/>}</div>
                           <div style={{fontSize:11, color:"#888"}}>평균 수익률 <span style={{fontWeight:500, color:"#222"}}>{currentAccMetrics.rate.toFixed(1)}%</span></div>
                           <div style={{fontSize:11, color:"#888", marginTop:4}}>현재 <span style={{fontWeight:500, color:"#222"}}>{activeCount}</span>개 상품{redeemedCount > 0 && <span style={{color:"#aaa"}}> ({redeemedCount}개 상환완료)</span>}</div>
                         </div>
@@ -1100,7 +1115,7 @@ let sText = ""; let sBg = ""; let sColor = "";
               <div style={{marginBottom:16}}>{dashView==="account" ? (<div style={{display:"flex",gap:10}}>
                 <div style={{...C.metricCard, background:"#fff", border:"1px solid #e5e5e5"}}>
                   <div style={{fontSize:12,color:"#888"}}>{filterStatus==="all" ? `${acc.name} 총 잔액` : `${acc.name} · ${filterStatus==="상환 완료"?"상환 완료":filterStatus} 합계`}</div>
-                  <div style={{fontSize:20,fontWeight:500}}>{filterStatus==="all" ? currentAccMetrics.total.toLocaleString() : filterMetrics.total.toLocaleString()}만</div>
+                  <div style={{fontSize:20,fontWeight:500}}>{filterStatus==="all" ? currentAccMetrics.total.toLocaleString() : filterMetrics.total.toLocaleString()}만{filterStatus==="상환 완료" && dashFilterCount>0 && <ProfitTag v={dashRedeemedProfit}/>}</div>
                   <div style={{fontSize:11,color:"#888",marginTop:4}}>
                     {filterStatus==="all"
                       ? <>현재 <span style={{fontWeight:500,color:"#222"}}>{myProducts.filter(p=>!p.is_redeemed).length}</span>개 상품{myProducts.filter(p=>p.is_redeemed).length>0&&<span style={{color:"#aaa"}}> ({myProducts.filter(p=>p.is_redeemed).length}개 상환완료)</span>}</>
@@ -1116,7 +1131,7 @@ let sText = ""; let sBg = ""; let sColor = "";
                 <div style={{display:"flex",gap:10}}>
                   <div style={{...C.metricCard, background: filterStatus==="all"?"#E1F5EE":"#EFF6FF", border: filterStatus==="all"?"1px solid #c3e6cb":"1px solid #BFDBFE"}}>
                     <div style={{fontSize:12,color: filterStatus==="all"?"#0F6E56":"#1D4ED8", fontWeight:500}}>{filterStatus==="all" ? "전체 계좌 총 잔액" : `${filterStatus==="상환 완료"?"상환 완료":filterStatus} 합계`}</div>
-                    <div style={{fontSize:20,fontWeight:700,color: filterStatus==="all"?"#0F6E56":"#1D4ED8"}}>{filterStatus==="all" ? grandTotal.toLocaleString() : filterMetrics.total.toLocaleString()}만</div>
+                    <div style={{fontSize:20,fontWeight:700,color: filterStatus==="all"?"#0F6E56":"#1D4ED8"}}>{filterStatus==="all" ? grandTotal.toLocaleString() : filterMetrics.total.toLocaleString()}만{filterStatus==="상환 완료" && dashFilterCount>0 && <ProfitTag v={dashRedeemedProfit}/>}</div>
                     <div style={{fontSize:11,color: filterStatus==="all"?"#0F6E56":"#1D4ED8",marginTop:4}}>
                       {filterStatus==="all"
                         ? <>현재 <span style={{fontWeight:500}}>{dashActiveCount}</span>개 상품{dashRedeemedCount>0&&<span style={{opacity:0.75}}> ({dashRedeemedCount}개 상환완료)</span>}</>
@@ -1129,7 +1144,7 @@ let sText = ""; let sBg = ""; let sColor = "";
                     <div style={{fontSize:20,fontWeight:700,color:"#0F6E56"}}>{filterStatus==="all" ? grandRate.toFixed(1) : filterMetrics.rate.toFixed(1)}%</div>
                   </div>
                 </div>
-                {accounts.length>1&&(<div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:4}}>{filteredAllAccsMetrics.map(m=>(<div key={m.name} style={{...C.metricCard,minWidth:140,background:"#fff",border:"1px solid #e5e5e5",padding:"10px 14px"}}><div style={{fontSize:13,fontWeight:500,marginBottom:4}}>{m.name}</div><div style={{fontSize:13,color:"#555"}}>{m.total.toLocaleString()}만 <span style={{color:"#bbb",margin:"0 4px"}}>|</span> {m.rate.toFixed(1)}%</div></div>))}</div>)}
+                {accounts.length>1&&(<div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:4}}>{filteredAllAccsMetrics.map(m=>(<div key={m.name} style={{...C.metricCard,minWidth:140,background:"#fff",border:"1px solid #e5e5e5",padding:"10px 14px"}}><div style={{fontSize:13,fontWeight:500,marginBottom:4}}>{m.name}</div><div style={{fontSize:13,color:"#555"}}>{m.total.toLocaleString()}만{filterStatus==="상환 완료" && m.total>0 && <ProfitTag v={m.profit}/>} <span style={{color:"#bbb",margin:"0 4px"}}>|</span> {m.rate.toFixed(1)}%</div></div>))}</div>)}
               </div>)}</div>
               {filteredDashProducts.length===0 && <div style={{...C.card,textAlign:"center",color:"#aaa",padding:40}}>해당 조건에 맞는 상품이 없습니다.</div>}
 
